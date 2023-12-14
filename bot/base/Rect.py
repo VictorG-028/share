@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from bot.base.Point import Point
 
+
 class Rect:
     top_left: Point
     bottom_right: Point

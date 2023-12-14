@@ -1,14 +1,15 @@
-from typing import Literal, Optional
+import random
 from enum import Enum
 from functools import cached_property, lru_cache
-import random
 from time import sleep
-import numpy as np
-from PIL import Image, ImageDraw
-import pyautogui
-from bot.WindowController import WindowController
-from bot.base.Point import Point
+from typing import Literal, Optional
 
+import numpy as np
+import pyautogui
+from PIL import Image, ImageDraw
+
+from bot.base.Point import Point
+from bot.WindowController import WindowController
 
 window = WindowController("WAKFU", "Wakfu")
 
@@ -50,14 +51,17 @@ class Direction:
     """
     #TODO: achar a coordenada do quadrado que o personmagem está em cima sem usar largura,altura da janela
 
-    __SQUARE_LENGTH__ = 65             # Pixel length (approximation) of a wakfu grid 45º-rotated square
     __COS_45__ = np.cos(np.pi/4)       # sen(45º) == cos(45º) == np.cos(np.pi/4) == np.sqrt(2)/2
     __SEN_45__ = np.sin(np.pi/4)       # sen(45º) == cos(45º) == np.cos(np.pi/4) == np.sqrt(2)/2
 
     # @cached_property
     # DELTA_X = lambda self: self.SQUARE_LENGTH*self.COS_45 # delta_x == delta_y == l * sen(45º) == l * cos(45º) 
-    __DELTA_X__ = __SQUARE_LENGTH__*__SEN_45__ # delta_x == delta_y == l * sen(45º) == l * cos(45º) 
-    __DELTA_Y__ = __SQUARE_LENGTH__*__COS_45__ # delta_x == delta_y == l * sen(45º) == l * cos(45º) 
+    # __DELTA_X__ = __SQUARE_LENGTH__*__SEN_45__ # delta_x == delta_y == l * sen(45º) == l * cos(45º) 
+    # __DELTA_Y__ = __SQUARE_LENGTH__*__COS_45__ # delta_x == delta_y == l * sen(45º) == l * cos(45º) 
+    __SQUARE_LENGTH__ = 51             # Pixel length (approximation) of a wakfu grid 45º-rotated square
+    __GRID_ANGLE__ = 26.3
+    __DELTA_X__ = __SQUARE_LENGTH__*np.cos(np.radians(__GRID_ANGLE__)) 
+    __DELTA_Y__ = __SQUARE_LENGTH__*np.sin(np.radians(__GRID_ANGLE__))
 
     NORTH_VECTOR = Point( __DELTA_X__,  __DELTA_Y__)
     SOUTH_VECTOR = -NORTH_VECTOR
@@ -69,43 +73,42 @@ class Direction:
     def CENTER(): return (Point(*window.center) + Point(5, 2))
     @staticmethod
     @lru_cache()
-    def NORTH(n=1): return Direction.CENTER() + n * Point(Direction.__DELTA_X__, -Direction.__DELTA_Y__)
+    def NORTH(n=1): return n * Point(Direction.__DELTA_X__, -Direction.__DELTA_Y__)
     @staticmethod
     @lru_cache()
-    def SOUTH(n=1): return Direction.CENTER() + n * Point(-Direction.__DELTA_X__, Direction.__DELTA_Y__)
+    def SOUTH(n=1): return n * Point(-Direction.__DELTA_X__, Direction.__DELTA_Y__)
     @staticmethod
     @lru_cache()
-    def EAST(n=1): return Direction.CENTER() + n * Point(Direction.__DELTA_X__, Direction.__DELTA_Y__)
+    def EAST(n=1): return n * Point(Direction.__DELTA_X__, Direction.__DELTA_Y__)
     @staticmethod
     @lru_cache()
-    def WEST(n=1): return Direction.CENTER() + n * Point(-Direction.__DELTA_X__, -Direction.__DELTA_Y__)
-
-    @staticmethod
-    @lru_cache()
-    def GET_SQUARE_COORD(x: int, y: int):
-        return x * Direction.NORTH + y * Direction.EAST
+    def WEST(n=1): return n * Point(-Direction.__DELTA_X__, -Direction.__DELTA_Y__)
 
     # @cached_property
     @staticmethod
     def HARDCODE_CENTER(): return (Point(*window.center) + Point(5, 2))
     @staticmethod
     @lru_cache()
-    def HARDCODE_NORTH(n=1): return n * Point(57.125, -29.375)
+    def HARDCODE_NORTH(n=1): return n * Point(57, -30) # 57.125, -29.375
     @staticmethod
     @lru_cache()
-    def HARDCODE_SOUTH(n=1): return n * Point(-57.125, 29.375)
+    def HARDCODE_SOUTH(n=1): return n * Point(-57.125, 29.375) # -57.125, 29.375
     @staticmethod
     @lru_cache()
-    def HARDCODE_EAST(n=1): return n * Point(58.75, 29.75)
+    def HARDCODE_EAST(n=1): return n * Point(58.75, 29.75) # 58.75, 29.75
     @staticmethod
     @lru_cache()
-    def HARDCODE_WEST(n=1): return n * Point(-58.75, -29.75)
+    def HARDCODE_WEST(n=1): return n * Point(-58.75, -29.75) # -58.75, -29.75
 
     @staticmethod
     @lru_cache()
-    def HARDCODE_SPAM_COORD(x: int = 1, y: int = 0):
-        return Direction.HARDCODE_CENTER() + \
-            Direction.HARDCODE_NORTH(x) + Direction.HARDCODE_EAST(y)
+    def SPAM_COORD(x: int, y: int, hardcode: bool = False):
+        if hardcode:
+            return Direction.HARDCODE_CENTER() + \
+                Direction.HARDCODE_NORTH(x) + Direction.HARDCODE_EAST(y)
+        else:
+            return Direction.CENTER() + \
+                Direction.NORTH(x) + Direction.EAST(y)
 
 
 class WUI:
@@ -235,20 +238,20 @@ def farm_troll_minigame(runs = 1) -> None:
         
         if (_ != 0):
             # Reenter the game
-            window.move_to(Direction.HARDCODE_SPAM_COORD(*npc_coord), None)
+            window.move_to(Direction.SPAM_COORD(*npc_coord), None)
             window.click(mouse_button='right')
             window.move_relative(0, -40)
             window.click(pos_action_delay=4)
 
         # Open the game door (start game)
-        window.move_to(Direction.HARDCODE_SPAM_COORD(1,0) + Point(-10, 10), None)
+        window.move_to(Direction.SPAM_COORD(1,0) + Point(-20, 0), None)
         window.click(mouse_button='right')
         window.move_relative(0, -40)
-        window.click()
+        window.click(pos_action_delay=0.4)
 
         # Start digging
         for coord in coords:
-            window.move_to(Direction.HARDCODE_SPAM_COORD(*coord), None)
+            window.move_to(Direction.SPAM_COORD(*coord), None)
             window.click(mouse_button='right')
             window.move_relative(0, -40)
             window.click(mouse_button='right', pos_action_delay=1.85)
@@ -258,20 +261,20 @@ def farm_troll_minigame(runs = 1) -> None:
         choice = random.uniform(1, 20)
         if choice < 5:
             # walk around
-            window.move_to(Direction.HARDCODE_SPAM_COORD(-3,-1), None)
+            window.move_to(Direction.SPAM_COORD(-3,-1), None)
             window.click(mouse_button='right')
             window.click(mouse_button='left', pos_action_delay=1.7, hold=0)
 
-            window.move_to(Direction.HARDCODE_SPAM_COORD(-2,-1), None)
+            window.move_to(Direction.SPAM_COORD(-2,-1), None)
             window.click(mouse_button='left', pos_action_delay=1.7, hold=0)
 
-            window.move_to(Direction.HARDCODE_SPAM_COORD(0,1), None)
+            window.move_to(Direction.SPAM_COORD(0,1), None)
             window.click(mouse_button='left', pos_action_delay=1.7, hold=0)
 
-            window.move_to(Direction.HARDCODE_SPAM_COORD(0,-1), None)
+            window.move_to(Direction.SPAM_COORD(0,-1), None)
             window.click(mouse_button='left', pos_action_delay=1.7, hold=0)
 
-            window.move_to(Direction.HARDCODE_SPAM_COORD(5,2), None)
+            window.move_to(Direction.SPAM_COORD(5,2), None)
             window.click(mouse_button='left', pos_action_delay=4.5, hold=0)
 
             if choice == 4: # Open and exit SDV
@@ -298,7 +301,7 @@ def farm_water(
         'west': (0, -1),
     }
 
-    screen_point = Direction.HARDCODE_SPAM_COORD(*input_to_gridCoord[direction])
+    screen_point = Direction.SPAM_COORD(*input_to_gridCoord[direction])
 
     window.move_to(screen_point, None)
     window.click(mouse_button='right')
@@ -347,7 +350,7 @@ def farm_coal(iterations = 3, local = 'astrub') -> None:
         window.click(pos_action_delay=6.0)
 
         for coord, action in zip(coords, actions):
-            window.move_to(Direction.HARDCODE_SPAM_COORD(*coord), None)
+            window.move_to(Direction.SPAM_COORD(*coord), None)
             if action == 'collect':
                 window.click(mouse_button='right')
                 window.move_relative(0, -40)
@@ -357,14 +360,33 @@ def farm_coal(iterations = 3, local = 'astrub') -> None:
 
 
 def farm_quaqua_minigame(runs = 400) -> None:
-    
+
     window.to_front(click_on_window_to_force_focus = True)
     sleep(1)
+
+    # point_start_square, shape_ss = window.find_button("SDV_icon")
 
     coords = [
         (0,0), (0,0), (0,0), 
         (0,0)
     ]
+
+    raise NotImplementedError()
+
+
+def farm_gold_rush_minigame(runs = 400) -> None:
+    
+    window.to_front(click_on_window_to_force_focus = True)
+    sleep(1)
+
+    # point_start_square, shape_ss = window.find_button("SDV_icon")
+
+    coords = [
+        (0,0), (0,0), (0,0), 
+        (0,0)
+    ]
+
+    raise NotImplementedError()
 
     
 

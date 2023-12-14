@@ -1,14 +1,17 @@
-from enum import Enum
-from functools import cached_property
 import os
 import re
+from enum import Enum
+from functools import cached_property
+from time import sleep
 from typing import Literal, Optional
-import win32gui, win32ui, win32con
+
 import cv2
 import numpy as np
-from PIL import Image, ImageGrab
 import pyautogui as autogui
-from time import sleep
+import win32con
+import win32gui
+import win32ui
+from PIL import Image, ImageGrab
 
 from bot.base.Point import Point
 

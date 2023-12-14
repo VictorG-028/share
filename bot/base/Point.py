@@ -1,6 +1,8 @@
 from __future__ import annotations
+
 import math
 from typing import Union
+
 import numpy as np
 
 CoordinateType = Union[int, float, np.float64] # int | float | np.float64
