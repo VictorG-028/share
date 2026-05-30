@@ -1,0 +1,13 @@
+[project]
+name = "auto-appointment"
+version = "0.1.0"
+description = "Generate workday appointment punch times (GoF Strategy), decoupled from browser automation."
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+]
