@@ -16,3 +16,6 @@ env/
 # IDE
 .vscode/
 .idea/
+
+# Holiday API cache (generated at runtime)
+src/modules/holiday/data/*.json
