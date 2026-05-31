@@ -22,7 +22,7 @@ There is no build/lint step. Runtime dep: `pydantic` (>=2). Dev dep: `pytest`. `
 A generator of workday "appointment" punch times (entry / lunch start / lunch end / exit), with a hard separation between **producing numbers** and **driving a browser**. The orchestrator (`src/main.py`) is the only place that wires them together: it loads history, picks a strategy via the factory, generates values **once**, and (future phase) replays the *same* values on each browser controller so the two can be compared on equal input.
 
 Generation uses the GoF **Strategy** pattern:
-- **`StaticStrategy`** (the default) — fixed times per weekday from `modules/strategy/static/values.py`; raises `NotImplementedError` for Saturday/Sunday.
+- **`StaticStrategy`** (the default) — six memorizable sets numbered 1..6, produced by the formula in `modules/strategy/static/generator.py` (`static_times(n)`). `generate_for(day)` maps the weekday to a set: Mon..Fri → 1..5, weekend → 6 (the spare). It does **not** raise on weekends.
 - **`NaturalRandomStrategy`** — random times retried until they satisfy `modules/validation/validator.py`, constrained by injected history.
 
 Strategies are selected through `get_strategy(StrategyType, history=...)` in `modules/strategy/__init__.py` (`DEFAULT_STRATEGY = StrategyType.STATIC`).
@@ -34,11 +34,13 @@ Strategies are selected through `get_strategy(StrategyType, history=...)` in `mo
 
 ### Invariants worth preserving
 - **Generator must stay aligned with the validator.** Allowed hour ranges live in `validator.py` (`ENTRY_HOURS`, `LUNCH_START_HOURS`, `EXIT_HOURS`); `natural_random/generator.py` imports and samples from them. Changing one side without the other silently makes rules unreachable.
+- **Rule 4 windowing has a single source of truth.** `validate()` trims `history` to the last `WINDOW_DAYS - 1` entries (`WINDOW_DAYS = 7`, by count) itself, so callers pass the full history and never diverge. The generator passes its whole history; do not re-window in callers. A comment in `validator.py` documents how the real system differs (centred ±4 calendar days, holiday-aware) from our simpler backward-only by-count window.
 - **History is trusted, never validated on load.** `_load_history` parses the CSV but does not enforce the rules — real-world punches may legitimately break them. `history_messy.csv` exists to prove load ≠ validate.
 - **`NaturalRandomStrategy` is immutable.** It never mutates its stored history; `generate_week` uses a local accumulator so days in a week stay unique (Rule 4) without side effects.
 - **`Appointment.week_day` is derived** from `day.weekday()` (a property, no stored state). Weekday keys: 0 = Monday … 6 = Sunday.
 - **`Appointment` is a pydantic `BaseModel`:** it has no positional constructor — always build it with keyword args. Equality compares all fields (incl. `day`/`osi`); `__repr__`/`__str__` are overridden for compact `HH:MM` output.
-- **Weekend ownership is asymmetric by design:** only `StaticStrategy` raises on weekends; `NaturalRandomStrategy` generates regardless; the orchestrator skips weekends in the normal flow.
+- **Day eligibility lives in the orchestrator, not the strategies.** `main.run` skips weekends and Brazilian holidays by default; `force=True` punches anyway (used when actually asked to work). The strategies are calendar-agnostic: `StaticStrategy` no longer raises on weekends (it uses spare set 6), `NaturalRandomStrategy` generates regardless.
+- **Holiday checks come from `modules/holiday/service.py`.** `is_holiday(date)` resolves national holidays via local cache → BrasilAPI (stdlib `urllib`, no dep) → offline fixed-date fallback. Pass `allow_network=False` to stay offline (tests do). The cache (`modules/holiday/data/*.json`) is gitignored; movable holidays (Carnaval etc.) are only covered when the API/cache is available, not by the fallback.
 
 ### Imports
 `pytest.ini` puts `src` on the path, so use absolute imports rooted there (`from models.appointment import Appointment`, `from modules.strategy import get_strategy`). `src/` has **no** `__init__.py` (so pytest roots test packages at `src`); the package tree under `models/`, `modules/`, and `test/` does.

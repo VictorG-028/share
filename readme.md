@@ -4,9 +4,10 @@ Gera valores de apontamento (entrada, almoço, saída) por dia, com **separaçã
 entre gerar números e controlar o navegador**. A geração usa o pattern GoF
 **Strategy**:
 
-- **`static`** (padrão) — sempre os mesmos horários para cada dia da semana
-  (`modules/strategy/static/values.py`). Sábado/domingo levantam `NotImplementedError`.
-- **`natural_random`** — horários aleatórios sob 10 regras + histórico
+- **`static`** (padrão) — 6 conjuntos memorizáveis numerados 1–6, gerados pela fórmula
+  em `modules/strategy/static/generator.py`. Por dia: Seg–Sex → 1–5, fim de semana → 6
+  (coringa). Não levanta erro no fim de semana.
+- **`natural_random`** — horários aleatórios sob as 10 regras + histórico
   (`modules/strategy/natural_random/`).
 
 ## Estrutura
@@ -15,14 +16,15 @@ entre gerar números e controlar o navegador**. A geração usa o pattern GoF
 src/
   models/appointment.py            # modelo pydantic compartilhado (day, 4 horas, osi, week_day)
   modules/
-    validation/validator.py        # as 10 regras (compartilhadas)
+    validation/validator.py        # as 10 regras + janela WINDOW_DAYS=7 (compartilhadas)
     history/
       loader.py                    # _load_history(file) -> list[Appointment] (CSV, confiável)
       data/history.csv             # 3 semanas de exemplo (válidas)
       data/history_messy.csv       # com violações (testar que load != validate)
+    holiday/service.py             # is_holiday(date) BR: BrasilAPI + cache + fallback offline
     strategy/
       base.py                      # AppointmentStrategy (ABC): generate_for / generate_week
-      static/{strategy.py, values.py}
+      static/{strategy.py, generator.py}   # static_times(n) p/ n em 1..6
       natural_random/{strategy.py, generator.py}
       __init__.py                  # StrategyType + factory get_strategy()
     browser/
@@ -33,9 +35,10 @@ src/
   test/{unit,integration,e2e}/
 ```
 
-O orquestrador gera os valores **uma vez** e (fase futura) os repassa para os dois
-controladores de browser em sessões separadas, para comparar qual dirige melhor o
-site com o mesmo input.
+O orquestrador (`main.run`) pula fim de semana e feriado por padrão (`force=True`
+aponta mesmo assim), gera os valores **uma vez** e (fase futura) os repassa para os
+dois controladores de browser em sessões separadas, para comparar qual dirige melhor
+o site com o mesmo input.
 
 ## Setup e execução (uv)
 
