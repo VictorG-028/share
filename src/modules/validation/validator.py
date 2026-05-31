@@ -18,6 +18,19 @@ MIN_SPAN = timedelta(hours=9)
 MAX_SPAN = timedelta(hours=10)
 MIN_LUNCH = timedelta(hours=1)
 
+# Rule 4 window size (in punched entries, candidate included).
+#
+# Real system: rejects a repeated minute within a window centred on the day --
+# the current day plus 4 days BACK *and* 4 days FORWARD, counting calendar days
+# (weekends/holidays included). It is bidirectional and holiday-aware.
+#
+# Chosen system (simpler, stricter-friendly): a 7-entry window looking only
+# BACKWARD by count (candidate + the 6 previous entries). It is holiday-agnostic
+# and counts weekend punches too -- WINDOW_DAYS is in punched days, not calendar
+# days -- because weekend work is possible. Backward-only is enough at generation
+# time, since no future entries exist yet.
+WINDOW_DAYS = 7
+
 
 def same_minute(a, b) -> bool:
     return a.minute == b.minute
@@ -29,6 +42,10 @@ def validate(
     """``(True, None)`` if valid, ``(False, "explanation")`` otherwise."""
 
     # Rules 1, 2, 3 - minute collisions inside the same appointment
+    # NOTE: the real system actually ALLOWS entry == exit minute (1st entry vs
+    # 2nd exit); only 1st-exit (lunch_start) and 2nd-entry (lunch_end) are truly
+    # constrained there. We deliberately stay stricter (no repeated minute on any
+    # field) so nothing ever looks duplicated.
     if same_minute(appointment.entry_time, appointment.exit_time):
         return False, "Rule 1: Entry and exit have same minute"
     if same_minute(appointment.entry_time, appointment.lunch_start):
@@ -36,8 +53,11 @@ def validate(
     if same_minute(appointment.lunch_end, appointment.exit_time):
         return False, "Rule 3: Lunch end and exit have same minute"
 
-    # Rule 4 - each field's minute must be unique across history
-    for past in history:
+    # Rule 4 - each field's minute must be unique within the sliding window.
+    # Single source of truth: validate() always trims to the last WINDOW_DAYS - 1
+    # entries here, so callers can pass the full history and never diverge.
+    window = history[-(WINDOW_DAYS - 1):] if WINDOW_DAYS > 1 else []
+    for past in window:
         if same_minute(appointment.entry_time, past.entry_time):
             return False, "Rule 4: Entry minute already used in history"
         if same_minute(appointment.lunch_start, past.lunch_start):

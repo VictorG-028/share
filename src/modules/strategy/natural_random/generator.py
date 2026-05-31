@@ -19,10 +19,9 @@ def generate_appointment(day: date, history: list[Appointment]) -> Appointment:
     Draw random punch times for ``day`` until they satisfy every rule in
     :func:`validate`, considering up to the last 5 history entries.
 
-    Pure function: it never mutates ``history``.
+    Pure function: it never mutates ``history``. The full history can be passed;
+    :func:`validate` trims it to the Rule 4 window internally.
     """
-    last_week = history[-5:]
-
     for _ in range(MAX_ATTEMPTS):
         entry_time = time(random.choice(ENTRY_HOURS), random.randint(1, 59))
         lunch_start = time(random.choice(LUNCH_START_HOURS), random.randint(1, 59))
@@ -40,7 +39,7 @@ def generate_appointment(day: date, history: list[Appointment]) -> Appointment:
             exit_time=exit_time,
         )
 
-        ok, _reason = validate(appointment, last_week)
+        ok, _reason = validate(appointment, history)
         if ok:
             return appointment
 
