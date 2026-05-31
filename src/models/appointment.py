@@ -23,6 +23,9 @@ class Appointment(BaseModel):
     lunch_start: time
     lunch_end: time
     exit_time: time
+    # OSI is optional. Punching WITH an OSI is preferred (it avoids drawing HR /
+    # manager attention), but an OSI takes time to be created, which forces
+    # punching without one at some month starts -- hence the empty default.
     osi: str = ""
 
     @property
