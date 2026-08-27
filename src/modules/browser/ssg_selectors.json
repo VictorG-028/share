@@ -1,0 +1,68 @@
+{
+  "_comment": "Seletores reais do SSG, sondados e VALIDADOS com um save real em 2026-08-27 (dia 26/08 apontado com sucesso via CDP). NENHUM campo tem id ou name -- tudo e ancorado por classe.",
+  "entryUrl": "https://ssg.sysmap.com.br/index.html#/access-entry/get-list",
+  "note_entryUrl": "A URL raiz (ssg.sysmap.com.br/) redireciona para o login do portal. A entrada valida e index.html + rota por hash. O legado /new/timesheet/timesheetrecording.asp redireciona para esta mesma rota.",
+  "stack": "jQuery 2.1 + Bootstrap 3 + jquery.maskedinput + bootstrap3-typeahead + bootbox",
+  "filtro": {
+    "dataInicial": ".start-date",
+    "dataFinal": ".end-date",
+    "profissional": ".user-name.dynamic-autocomplete",
+    "formatoData": "DD/MM/AAAA (campo mascarado: digitar so os 8 digitos)",
+    "botaoFiltrar": "botao cujo textContent.trim() === 'Filtrar' e que esteja visivel"
+  },
+  "dia": {
+    "container": "div.panel.panel-default.access-entry-day",
+    "comoAchar": "entre os .access-entry-day, o cujo textContent contem 'DD/MM/AAAA'",
+    "expandir": "button.button-toggle-day -- alterna .day-body entre display block e none",
+    "seloSemRegistro": "IGNORAR. 'Sem registro' aparece em TODO dia, inclusive nos ja salvos. Nao e sinal de nada."
+  },
+  "registroES": {
+    "linhaReal": "tr.access-record-row:not(.hide)",
+    "template": "tr.access-record-row-template.hide -- NAO preencher, e o molde clonado",
+    "entrada": ".input-clock-in",
+    "saida": ".input-clock-out",
+    "abonoFaltas": ".input-absence-allowance",
+    "observacao": ".input-access-note",
+    "adicionarLinha": "button.button-add-access-row",
+    "removerLinha": "a.button-remove-access-row",
+    "layout": "DUAS linhas por dia: linha 1 = entrada + inicio-almoco, linha 2 = fim-almoco + saida"
+  },
+  "apontamento": {
+    "linhaReal": "tr.appointment-row:not(.hide)",
+    "horas": ".input-appointed-hours",
+    "osiProjetoAtividade": ".input-project-activity.dynamic-autocomplete",
+    "observacao": ".input-appointment-note -- deixar VAZIA. O SITE grava ';' sozinho quando a observacao vai vazia; dias apontados a mao leem ';' do mesmo jeito. Tratar '' e ';' como 'sem observacao'.",
+    "adicionarLinha": "button.button-add-appointment-row",
+    "formatoOsi": "OSI <numero> | <Projeto> | <Atividade> - <id>",
+    "exemplo": "OSI 82695 | Faturamento Assistencial SECONCI | Carga base historica - 417293",
+    "comoPreencher": "digitar so o numero da OSI (ex 82695); o typeahead abre ul.typeahead.dropdown-menu; clicar no li visivel; o campo recebe a string composta inteira"
+  },
+  "salvar": {
+    "botao": "botao cujo textContent casa 'Salvar dias alterados' e que esteja visivel",
+    "escopo": "global da tela -- salva TODOS os dias alterados de uma vez",
+    "confirmacao": "nenhuma. Nao abre modal bootbox e NAO exibe toast de sucesso.",
+    "sinalDeSucesso": "re-filtrar o periodo e contar tr.access-record-row:not(.hide) no dia alvo. > 0 com os valores esperados = salvou. Validado com reload ignoreCache."
+  },
+  "armadilhas": {
+    "botaoInvisivel": "Ao adicionar linhas, o botao .button-add-access-row do estado vazio some e outro assume. SEMPRE mirar o visivel (getClientRects().length > 0), nunca o primeiro do querySelectorAll.",
+    "cliqueProgramatico": "el.click() nao aciona o .button-toggle-day. Usar Input.dispatchMouseEvent real.",
+    "diaVazio": "Um dia sem apontamento vem recolhido e SEM linhas -- so os templates .hide. E preciso expandir e clicar em adicionar linha 2x (E/S) e 1x (apontamento).",
+    "campoMascarado": "Ver receitaDigitacao. Digitar direto sem limpar produz lixo: '0903' virou '90:30'.",
+    "observacaoPontoEVirgula": "Nao confundir: apos salvar, a observacao vazia volta do servidor como ';'. Nao foi ninguem que digitou -- e o default do site.",
+    "websocketOrigin": "Cliente WebSocket que manda header Origin leva 403 do Chromium no handshake CDP. Em Python usar websocket-client com suppress_origin=True (o WebSocket do Node nao manda Origin, por isso scripts .mjs funcionam sem nada)."
+  },
+  "receitaDigitacao": [
+    "1. clique de mouse REAL no campo (Input.dispatchMouseEvent press + release)",
+    "2. esperar ~400ms",
+    "3. el.focus(); el.select()",
+    "4. tecla Delete, esperar 150ms, tecla Backspace, esperar 150ms -- o campo volta a '__:__' com caret em 0",
+    "5. digitar SO OS DIGITOS (0903, nao 09:03), ~120ms por tecla, via Input.dispatchKeyEvent com text/unmodifiedText",
+    "6. reler el.value e comparar com o esperado ANTES de salvar"
+  ],
+  "implementacao": {
+    "controller": "src/modules/browser/ssg_controller.py -- copia executavel destes seletores",
+    "navegador": "src/modules/browser/browsers.py -- Edge, fallback Chrome, perfil dedicado, lembra qual subiu",
+    "cdp": "src/modules/browser/cdp.py -- clique de mouse real e digitacao tecla a tecla",
+    "regra": "fill_appointment preenche e confere mas NAO salva; save_day e chamada separada"
+  }
+}
