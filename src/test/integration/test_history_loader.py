@@ -1,8 +1,11 @@
 from datetime import date, time
 from pathlib import Path
 
+import pytest
+
 from models.appointment import Appointment
-from modules.history.loader import DATA_DIR, _load_history
+from modules.history import loader
+from modules.history.loader import DATA_DIR, _load_history, append_appointment, history_file
 from modules.validation.validator import validate_list
 
 CLEAN = DATA_DIR / "history.csv"
@@ -42,3 +45,47 @@ def test_messy_history_loads_without_validation():
     # ...and it would indeed fail validation, proving load != validate.
     ok, _ = validate_list(messy)
     assert ok is False
+
+
+# Reading comes from the bundle; writing goes to the user's own copy, because a
+# frozen build cannot write next to its modules.
+
+
+@pytest.fixture
+def user_copy(tmp_path, monkeypatch):
+    target = tmp_path / "history.csv"
+    monkeypatch.setattr(loader, "user_history_file", lambda: target)
+    return target
+
+
+def _punch(day: date) -> Appointment:
+    return Appointment(
+        day=day,
+        entry_time=time(9, 3),
+        lunch_start=time(12, 7),
+        lunch_end=time(13, 8),
+        exit_time=time(18, 4),
+    )
+
+
+def test_reads_the_bundled_sample_until_a_user_copy_exists(user_copy):
+    assert history_file() == CLEAN
+    append_appointment(_punch(date(2026, 8, 26)))
+    assert history_file() == user_copy
+
+
+def test_append_seeds_from_the_bundle_then_adds_the_row(user_copy):
+    assert append_appointment(_punch(date(2026, 8, 26))) == user_copy
+    rows = _load_history(user_copy)
+    # seeded with the packaged sample, plus the new punch at the end
+    assert len(rows) == len(_load_history(CLEAN)) + 1
+    assert rows[-1].day == date(2026, 8, 26)
+
+
+def test_append_refuses_to_record_the_same_day_twice(user_copy):
+    day = _punch(date(2026, 8, 26))
+    append_appointment(day)
+    before = len(_load_history(user_copy))
+    # A duplicate would corrupt the Rule 4 window.
+    assert append_appointment(day) is None
+    assert len(_load_history(user_copy)) == before

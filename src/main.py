@@ -25,7 +25,7 @@ import sys
 from datetime import date, datetime, timedelta
 
 from models.appointment import Appointment
-from modules.history.loader import DEFAULT_HISTORY_FILE, _load_history
+from modules.history.loader import _load_history, append_appointment
 from modules.holiday.service import is_holiday
 from modules.strategy import DEFAULT_STRATEGY, StrategyType, get_strategy
 
@@ -89,7 +89,7 @@ def run(
         print(f"{target_day.isoformat()}: {reason}. Nao gerei nada.")
         return None
 
-    history = _load_history(DEFAULT_HISTORY_FILE)
+    history = _load_history()
     strategy = get_strategy(strategy_type, history=history)
     appointment = strategy.generate_for(target_day)
     print(f"[{strategy_type.value}] {target_day.isoformat()}: {appointment}")
@@ -110,7 +110,7 @@ def run_week(
     unique from each other (Rule 4) -- generating them one at a time would
     throw that away. Ineligible days are dropped afterwards.
     """
-    history = _load_history(DEFAULT_HISTORY_FILE)
+    history = _load_history()
     strategy = get_strategy(strategy_type, history=history)
 
     kept: list[Appointment] = []
@@ -197,6 +197,9 @@ def punch(
                 continue
             controller.save_day(appointment)
             written += 1
+            # Only a punch that really landed goes into the history, so Rule 4
+            # keeps checking against what was actually recorded.
+            append_appointment(appointment)
             print(f"{appointment.day.isoformat()}: GRAVADO e confirmado no servidor.")
     except SsgLoginRequired as error:
         print(f"Login necessario: {error}")

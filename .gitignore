@@ -17,5 +17,11 @@ env/
 .vscode/
 .idea/
 
-# Holiday API cache (generated at runtime)
+# Holiday API cache. It now lives under the user data dir; this line stays so
+# caches left behind by older versions are never committed by accident.
 src/modules/holiday/data/*.json
+
+# Packaging output (PyInstaller)
+build/
+dist/
+*.spec

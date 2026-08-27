@@ -6,13 +6,21 @@ import urllib.request
 from datetime import date
 from pathlib import Path
 
+from modules.paths import user_data_dir
+
 # Brazilian national holidays. Source order: local cache -> BrasilAPI -> offline
 # fallback. BrasilAPI is free and key-less; we use stdlib urllib so no extra
 # dependency is added.
 API_URL = "https://brasilapi.com.br/api/feriados/v1/{year}"
 _TIMEOUT_SECONDS = 5
 
-DATA_DIR = Path(__file__).parent / "data"
+def _data_dir() -> Path:
+    """
+    Where the per-year cache lives: under the user's data dir, never next to
+    the module. A frozen build unpacks itself into a temporary directory that
+    is recreated on every run, so a cache written there would vanish.
+    """
+    return user_data_dir() / "holidays"
 
 # Offline fallback: FIXED-DATE national holidays only, keyed by (month, day).
 # Movable holidays (Carnaval, Sexta-feira Santa, Corpus Christi) are tied to
@@ -32,7 +40,7 @@ FIXED_NATIONAL: dict[tuple[int, int], str] = {
 
 
 def _cache_file(year: int) -> Path:
-    return DATA_DIR / f"holidays_{year}.json"
+    return _data_dir() / f"holidays_{year}.json"
 
 
 def _read_cache(year: int) -> set[date] | None:
@@ -47,7 +55,7 @@ def _read_cache(year: int) -> set[date] | None:
 
 
 def _write_cache(year: int, days: set[date]) -> None:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    _data_dir().mkdir(parents=True, exist_ok=True)
     with open(_cache_file(year), "w", encoding="utf-8") as handle:
         json.dump(sorted(d.isoformat() for d in days), handle, ensure_ascii=False, indent=2)
 
