@@ -121,52 +121,78 @@ as linhas voltaram do servidor, porque o site não emite toast nem modal.
    lê `;` — é o default do site, não digitação. Por isso os dias 24 e 25 também
    mostravam `;`. O portão trata `''` e `';'` como "sem observação".
 
-## Etapa 3 — `InputController` (mouse/teclado) — só se preciso
+## Etapa 3 — `InputController` (mouse/teclado) ⏸ dispensada por ora
 
-O segundo controller do ABC, para a comparação que o projeto sempre previu.
-Só vale o esforço se o CDP esbarrar em algo (iframe hostil, canvas, campo que
-ignora eventos sintéticos). Frágil a resolução e foco de janela — é plano B,
-não plano A.
+Era o plano B: só valeria se o CDP esbarrasse em algo (iframe hostil, canvas,
+campo que ignora evento sintético). Não esbarrou — o `SsgController` digita,
+clica e salva. O stub continua no repo, e o ABC continua permitindo a
+comparação, mas não há motivo para gastar esforço nele agora.
 
-## Etapa 4 — CLI de verdade
-
-Hoje `main.py` roda com uma data hardcoded. Precisa de `argparse`:
+## Etapa 4 — CLI ✅ concluída
 
 ```
-auto-appointment --day 2026-08-27 --strategy static [--force] [--dry-run] [--week]
+auto-appointment [--day DATA] [--week] [--strategy static|natural_random]
+                 [--force] [--fill] [--save] [--yes] [--osi N] [--port N]
 ```
 
-`--dry-run` imprime sem abrir browser (é o modo de hoje). Sem `--day`, hoje.
+- **O padrão é seco:** gera e imprime, não abre browser, não grava nada.
+- `--day` aceita `AAAA-MM-DD` ou `DD/MM/AAAA`; sem ele, **ontem** (hoje é recusado).
+- `--fill` preenche e confere sem gravar; `--save` grava e **pergunta antes**
+  (`--yes` pula), recusando quando não há terminal interativo em vez de adivinhar.
+- `--fill` sem `--save` recusa mais de um dia: filtrar o dia seguinte descarta o
+  preenchimento do anterior, e isso passaria despercebido.
+- `--week` passa pelo `generate_week` da estratégia, não por um laço sobre `run()`,
+  porque o `NaturalRandomStrategy` mantém os dias da semana únicos entre si (Regra 4).
+- Códigos de saída: `0` feito, `1` erro, `2` nada a fazer (feriado pulado não é falha).
 
-## Etapa 5 — Persistência (pré-requisito do empacotamento)
+## Etapa 5 — Persistência 🔶 o essencial feito
 
-- Escrever de volta no histórico após apontar — hoje o CSV nunca cresce, e a
-  Regra 4 depende dele.
-- **Separar leitura de escrita.** `loader.py` e `holiday/service.py` usam
-  `Path(__file__).parent / "data"`; dentro de um `.exe` onefile isso vira
-  `sys._MEIPASS`, um diretório temporário recriado a cada execução — o cache de
-  feriados sumiria e o histórico ficaria congelado. Leitura do bundle, escrita
-  em `%LOCALAPPDATA%\auto-appointment\`.
-- Decidir de onde vem a **OSI** (hoje o campo existe e ninguém preenche).
+- [x] **Leitura empacotada separada da escrita do usuário.** Leitura vem de
+      `paths.bundle_dir()` (`src` em dev, diretório de extração quando congelado);
+      escrita vai para `paths.user_data_dir()` (`%LOCALAPPDATA%\auto-appointment`).
+- [x] Cache de feriados migrado para o diretório do usuário
+- [x] `append_appointment` grava no histórico **só** o que foi realmente salvo no
+      site, semeando a cópia do usuário a partir da empacotada na primeira vez, e
+      recusando registrar o mesmo dia duas vezes
+- [ ] De onde vem a **OSI**: hoje é uma constante (`82695`), sobrescrevível por
+      `--osi`. Ler da tela `#/osi/get-list` fica para quando incomodar
 
-## Etapa 6 — Empacotamento
+## Etapa 6 — Empacotamento ✅ concluída
 
-**Trilha A — programadores (barata, pode sair a qualquer momento):**
-adicionar ao `pyproject.toml`
+**Trilha A — quem já tem Python.** `pyproject.toml` ganhou `[project.scripts]`,
+`[build-system]` (hatchling) e:
 
 ```toml
-[project.scripts]
-auto-appointment = "main:cli"
+[tool.hatch.build.targets.wheel]
+sources = ["src"]
+only-include = ["src"]
 ```
 
-e eles rodam com `uvx --from git+<url> auto-appointment`, sem clonar.
+`sources = ["src"]` remove o prefixo, então `main.py`, `models/` e `modules/`
+caem na raiz do wheel — a mesma raiz que o `pytest.ini` assume, o que é
+exatamente o que mantém os imports absolutos funcionando dos dois lados.
 
-**Trilha B — executável:** PyInstaller onefile, gerado **no Windows** (não há
-cross-compile). `pydantic-core` é binário mas tem hook pronto — funciona. Como
-o browser é o da máquina, não há nada pesado para embutir; o `.exe` fica na
-casa dos ~15 MB. Incluir `history.csv` via `--add-data` e ler pelo caminho do
-`_MEIPASS` (Etapa 5). Contar com falso-positivo de antivírus/SmartScreen em
-`.exe` onefile não assinado — é normal, não é bug.
+Terceiros rodam com `uvx --from git+<url> auto-appointment`, sem clonar.
+
+**Trilha B — executável.** Build (só no Windows; não há cross-compile):
+
+```bash
+uv run pyinstaller --onefile --noconfirm --name auto-appointment --paths src \
+  --add-data "src/modules/history/data;modules/history/data" src/main.py
+```
+
+Resultado: **15 MB**, porque não há navegador embutido — dirigimos o Edge da
+máquina. Verificado: `dist/auto-appointment.exe --day 26/08/2026` imprime o
+mesmo que a versão instalada (o que já prova que o `history.csv` empacotado é
+lido, pois `run()` carrega o histórico antes de gerar), hoje é recusado com
+código 2, e `websocket`, `pydantic_core` e os dois CSVs estão no bundle.
+
+Avisos de `missing module named pydantic.BaseModel` no log do PyInstaller são
+falso-positivo com reexports lazy — o exe constrói `Appointment` normalmente.
+SmartScreen/antivírus reclamarem de `.exe` onefile não assinado é esperado.
+
+**Não verificado ainda:** dirigir o browser *a partir do exe congelado*
+(`--fill`). Os módulos estão no bundle, mas o caminho não foi exercido.
 
 ---
 
@@ -176,3 +202,5 @@ casa dos ~15 MB. Incluir `history.csv` via `--add-data` e ler pelo caminho do
 - Feriados móveis (Carnaval) só com rede/cache; municipais e estaduais não existem
 - Convergir (ou não) a janela da Regra 4 com a do sistema real (±4 dias corridos,
   centrada, ciente de feriado) — hoje a divergência é proposital e documentada
+- `save_day` a partir do Python nunca rodou contra o site: não houve dia elegível
+  (24, 25 e 26 apontados; 27 é hoje). O caminho equivalente foi provado via Node

@@ -8,7 +8,23 @@ dependencies = [
     "websocket-client>=1.9.0",
 ]
 
+[project.scripts]
+auto-appointment = "main:cli"
+
 [dependency-groups]
 dev = [
+    "pyinstaller>=6.22.2",
     "pytest>=8",
 ]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+# `sources = ["src"]` strips the prefix, so main.py, models/ and modules/ land
+# at the wheel root -- exactly the layout pytest.ini already assumes, which is
+# what keeps the absolute imports (`from models.appointment import ...`)
+# working both from a checkout and from an installed wheel.
+[tool.hatch.build.targets.wheel]
+sources = ["src"]
+only-include = ["src"]

@@ -1,8 +1,8 @@
 # Auto Appointment
 
-Gera valores de apontamento (entrada, almoço, saída) por dia, com **separação clara
-entre gerar números e controlar o navegador**. A geração usa o pattern GoF
-**Strategy**:
+Gera valores de apontamento (entrada, almoço, saída) por dia e, se você mandar,
+os digita no SSG — com **separação clara entre gerar números e controlar o
+navegador**. A geração usa o pattern GoF **Strategy**:
 
 - **`static`** (padrão) — 6 conjuntos memorizáveis numerados 1–6, gerados pela fórmula
   em `modules/strategy/static/generator.py`. Por dia: Seg–Sex → 1–5, fim de semana → 6
@@ -10,15 +10,76 @@ entre gerar números e controlar o navegador**. A geração usa o pattern GoF
 - **`natural_random`** — horários aleatórios sob as 10 regras + histórico
   (`modules/strategy/natural_random/`).
 
+## Uso
+
+```bash
+auto-appointment                          # gera para ONTEM e imprime
+auto-appointment --day 26/08/2026         # ou --day 2026-08-26
+auto-appointment --day 26/08/2026 --week  # segunda a sexta daquela semana
+auto-appointment --day 26/08/2026 --fill  # abre o browser, preenche e CONFERE
+auto-appointment --day 26/08/2026 --save  # grava no SSG (pergunta antes)
+```
+
+**O padrão é seco:** sem `--fill` ou `--save`, nada abre o navegador e nada é
+gravado. `--save` mostra o que vai gravar e pede confirmação (`--yes` pula);
+sem terminal interativo, ele recusa em vez de adivinhar.
+
+Duas regras que o programa aplica sozinho:
+
+- **Só dias passados.** O SSG recusa hoje e qualquer data futura, então o
+  gerador também recusa. `--force` **não** libera isso — ele existe só para
+  apontar um fim de semana ou feriado que você realmente trabalhou.
+- **Preencher não é gravar.** `--fill` digita e confere; se algum campo não
+  aceitar o valor, ele para e não grava nada.
+
+Códigos de saída: `0` feito, `1` erro, `2` nada a fazer (um feriado pulado não
+é falha).
+
+### Primeiro uso: o login é manual, uma vez
+
+A automação nunca faz login — o portal pede código do Google Authenticator.
+Na primeira vez o programa abre o Edge (ou Chrome) num **perfil dedicado**;
+entre à mão nesse janela e abra `https://ssg.sysmap.com.br`. A sessão fica
+salva no perfil e vale para as próximas execuções. Se expirar, o programa
+avisa com "Login necessario" em vez de tentar digitar numa tela de login.
+
+## Instalação
+
+**Se você já tem Python** (via [uv](https://docs.astral.sh/uv/)):
+
+```bash
+uvx --from git+<url-do-repo> auto-appointment --day 26/08/2026   # sem clonar
+```
+
+**Se não tem:** baixe o `auto-appointment.exe` (~15 MB, Windows). Ele não
+embute navegador nenhum — dirige o Edge que já está na máquina.
+
+## Desenvolvimento
+
+```bash
+uv sync                       # cria .venv e instala tudo (a partir do uv.lock)
+uv run auto-appointment --help
+uv run python -m pytest       # roda os testes
+uv run python -m pytest src/test/unit/test_validation.py::test_valid_sample_week  # um teste
+```
+
+Gerar o executável (só funciona no Windows, não há cross-compile):
+
+```bash
+uv run pyinstaller --onefile --noconfirm --name auto-appointment --paths src \
+  --add-data "src/modules/history/data;modules/history/data" src/main.py
+```
+
 ## Estrutura
 
 ```
 src/
   models/appointment.py            # modelo pydantic compartilhado (day, 4 horas, osi, week_day)
   modules/
+    paths.py                       # leitura empacotada vs escrita do usuário
     validation/validator.py        # as 10 regras + janela WINDOW_DAYS=7 (compartilhadas)
     history/
-      loader.py                    # _load_history(file) -> list[Appointment] (CSV, confiável)
+      loader.py                    # _load_history / append_appointment (CSV, confiável)
       data/history.csv             # 3 semanas de exemplo (válidas)
       data/history_messy.csv       # com violações (testar que load != validate)
     holiday/service.py             # is_holiday(date) BR: BrasilAPI + cache + fallback offline
@@ -29,28 +90,18 @@ src/
       __init__.py                  # StrategyType + factory get_strategy()
     browser/
       base.py                      # BrowserController (ABC): open/login/fill_appointment/close
-      playwright_controller.py     # stub (Playwright, Python puro)
-      input_controller.py          # stub (framework autoral mouse/teclado)
-  main.py                          # orquestrador
+      cdp.py                       # cliente CDP: clique de mouse real, digitação tecla a tecla
+      browsers.py                  # acha/sobe Edge -> Chrome, perfil dedicado, lembra qual subiu
+      ssg_controller.py            # o controller real do SSG
+      ssg_selectors.json           # seletores e armadilhas do site (sondados)
+      playwright_controller.py     # stub (descartado: baixa browsers próprios)
+      input_controller.py          # stub (framework autoral mouse/teclado, plano B)
+  main.py                          # orquestrador + CLI
   test/{unit,integration,e2e}/
 ```
 
-O orquestrador (`main.run`) pula fim de semana e feriado por padrão (`force=True`
-aponta mesmo assim), gera os valores **uma vez** e (fase futura) os repassa para os
-dois controladores de browser em sessões separadas, para comparar qual dirige melhor
-o site com o mesmo input.
+O que é gravado fica em `%LOCALAPPDATA%\auto-appointment\`: o perfil do
+navegador, o cache de feriados, e o histórico que cresce a cada apontamento
+confirmado (é dele que a Regra 4 depende).
 
-## Setup e execução (uv)
-
-O projeto usa [uv](https://docs.astral.sh/uv/) para ambiente e dependências
-(declaradas em `pyproject.toml`; `pydantic` em runtime, `pytest` no grupo `dev`).
-
-```bash
-uv sync                       # cria .venv e instala tudo (a partir do uv.lock)
-uv run python src/main.py     # gera o apontamento de exemplo
-uv run python -m pytest       # roda os testes
-uv run python -m pytest src/test/unit/test_validation.py::test_valid_sample_week  # um teste
-```
-
-`uv run` executa no ambiente do projeto sem precisar ativar nada manualmente.
-Para adicionar uma dependência: `uv add <pacote>` (ou `uv add --dev <pacote>`).
+Veja `ROADMAP.md` para o estado de cada etapa e as decisões por trás delas.
