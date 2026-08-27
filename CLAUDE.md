@@ -15,7 +15,7 @@ uv run python src/main.py     # run the orchestrator (prints a generated appoint
 uv add <pkg> / uv add --dev <pkg>                # add a runtime / dev dependency
 ```
 
-There is no build/lint step. Runtime dep: `pydantic` (>=2). Dev dep: `pytest`. `playwright` is added only when the browser layer is implemented.
+There is no build/lint step. Runtime deps: `pydantic` (>=2) and `websocket-client` (the CDP transport — pure Python, so a PyInstaller bundle stays trivial). Dev dep: `pytest`. `playwright` was deliberately **not** adopted: it downloads its own browsers, which do not fit in a onefile bundle.
 
 ## Architecture
 
@@ -46,5 +46,11 @@ Strategies are selected through `get_strategy(StrategyType, history=...)` in `mo
 ### Imports
 `pytest.ini` puts `src` on the path, so use absolute imports rooted there (`from models.appointment import Appointment`, `from modules.strategy import get_strategy`). `src/` has **no** `__init__.py` (so pytest roots test packages at `src`); the package tree under `models/`, `modules/`, and `test/` does.
 
-### Browser layer (future)
-`modules/browser/` defines `BrowserController` (ABC: `open` / `login` / `fill_appointment` / `close`). `PlaywrightController` (Playwright, pure Python) and `InputController` (home-grown mouse/keyboard) are stubs that raise `NotImplementedError` — both will implement the same contract intentionally, to compare which drives the site better.
+### Browser layer
+`modules/browser/` defines `BrowserController` (ABC: `open` / `login` / `fill_appointment` / `close`). `SsgController` is the real implementation; `PlaywrightController` and `InputController` remain stubs that raise `NotImplementedError` (`InputController` is the intended second implementation, for the comparison the project always planned).
+
+- **We never ship a browser.** `browsers.py` drives the Edge (falling back to Chrome) already installed, over CDP, using a dedicated persistent profile under `user_data_dir()`. Whichever browser answered is remembered in `browser.json`. Keeps the future `.exe` at ~15 MB.
+- **Login is never automated.** The portal asks for a Google Authenticator code. Landing on a login page raises `SsgLoginRequired`; the user signs in by hand once and the profile keeps the session.
+- **Filling never saves.** `fill_appointment` types and verifies; `save_day` is a separate call. Every write to a real timekeeping system leaves a trace, so it must be deliberate. `verify` raises `FieldMismatch` before any save can happen.
+- **`suppress_origin=True` is load-bearing** in `cdp.py`: `websocket-client` sends an `Origin` header and Chromium answers CDP handshakes carrying one with **403**, unless the browser was launched with `--remote-allow-origins`. Dropping the header works against a browser someone else started, without loosening the browser.
+- **Site selectors and traps live in `ssg_selectors.json`**, next to the controller. Nothing on that screen has an `id` or `name`; everything is anchored by class. The constants in `ssg_controller.py` are the executable copy — change both together.

@@ -5,6 +5,7 @@ description = "Generate workday appointment punch times (GoF Strategy), decouple
 requires-python = ">=3.12"
 dependencies = [
     "pydantic>=2",
+    "websocket-client>=1.9.0",
 ]
 
 [dependency-groups]
