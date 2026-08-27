@@ -1,6 +1,10 @@
-"""Orchestrator day-gating (weekend / holiday / force). No network involved."""
+"""
+Orchestrator day-gating (past-only / weekend / holiday / force).
 
-from datetime import date
+No network involved.
+"""
+
+from datetime import date, timedelta
 
 import main
 from modules.strategy.static.generator import static_times
@@ -33,3 +37,23 @@ def test_punches_ordinary_weekday(monkeypatch):
     appt = main.run(FRIDAY)
     assert appt is not None
     assert appt.day == FRIDAY
+
+
+# SSG only accepts days already in the past -- not the current day, and
+# certainly not the future. The rule is hard: force does not lift it.
+
+
+def test_refuses_today_even_with_force(monkeypatch):
+    monkeypatch.setattr(main, "is_holiday", lambda d, **kw: False)
+    assert main.run(date.today(), force=True) is None
+
+
+def test_refuses_the_future_even_with_force(monkeypatch):
+    monkeypatch.setattr(main, "is_holiday", lambda d, **kw: False)
+    assert main.run(date.today() + timedelta(days=1), force=True) is None
+
+
+def test_yesterday_is_allowed(monkeypatch):
+    monkeypatch.setattr(main, "is_holiday", lambda d, **kw: False)
+    yesterday = date.today() - timedelta(days=1)
+    assert main.run(yesterday, force=True) is not None

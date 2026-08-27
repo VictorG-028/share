@@ -5,7 +5,9 @@ Responsibilities (the only place that wires generation to browser-driving):
   1. load the trusted history,
   2. pick a strategy via the factory (default: static),
   3. generate the appointment value(s) ONCE,
-  4. skip weekends and Brazilian holidays by default (override with force=True),
+  4. refuse anything that is not in the past (SSG accepts only past days --
+     not even today -- and ``force`` does not bypass that),
+  5. skip weekends and Brazilian holidays by default (override with force=True),
   5. (future) replay the *same* generated values on each BrowserController in
      separate sessions, so the two controllers can be compared on equal input.
 
@@ -33,10 +35,21 @@ def run(
     """
     Generate the appointment for ``target_day`` using ``strategy_type``.
 
+    Only PAST days are allowed: SSG refuses the current day and any future
+    date, so generating for them would produce values the site rejects. That
+    rule is hard -- ``force`` does not bypass it.
+
     Weekends and Brazilian holidays are skipped unless ``force=True`` (use it
     when you are actually asked to work that day -- the static strategy then
     falls back to its spare set #6 for weekend days).
     """
+    if target_day >= date.today():
+        print(
+            f"{target_day.isoformat()} is not in the past -- SSG only accepts past "
+            "days (not even today). Not generating."
+        )
+        return None
+
     if not force:
         if target_day.weekday() in WEEKEND:
             print(f"{target_day.isoformat()} is a weekend -- not punching (use force=True).")
