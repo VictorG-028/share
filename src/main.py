@@ -169,6 +169,7 @@ def punch(
         SsgError,
         SsgLoginRequired,
     )
+    from modules.osi_catalog import save_last_used
 
     if not appointments:
         return EXIT_NOTHING_TO_DO
@@ -200,6 +201,7 @@ def punch(
             # Only a punch that really landed goes into the history, so Rule 4
             # keeps checking against what was actually recorded.
             append_appointment(appointment)
+            save_last_used(controller.osi_number)
             print(f"{appointment.day.isoformat()}: GRAVADO e confirmado no servidor.")
     except SsgLoginRequired as error:
         print(f"Login necessario: {error}")
@@ -262,12 +264,51 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--osi", help="numero da OSI a apontar")
     parser.add_argument("--port", type=int, help="porta do CDP (padrao: 9222)")
+    parser.add_argument(
+        "--refresh-osi-list",
+        action="store_true",
+        help=(
+            "abre o SSG, LE (nao grava) a lista de OSI e atualiza o cache "
+            "local; ignora as outras flags"
+        ),
+    )
     return parser
+
+
+def refresh_osi_list(*, port: int | None = None) -> int:
+    """Read-only: refresh the local OSI catalog cache from the live site."""
+    # Imported lazily, same reasoning as punch()'s browser-stack imports.
+    from modules.browser.browsers import DEFAULT_PORT, BrowserNotFound
+    from modules.browser.cdp import CdpError
+    from modules.browser.ssg_controller import SsgError, SsgLoginRequired
+    from modules.osi_catalog import refresh_catalog, save_catalog
+
+    try:
+        entries = refresh_catalog(port=port or DEFAULT_PORT)
+    except SsgLoginRequired as error:
+        print(f"Login necessario: {error}")
+        return EXIT_ERROR
+    except (BrowserNotFound, SsgError, CdpError) as error:
+        print(f"Erro: {error}")
+        return EXIT_ERROR
+    save_catalog(entries)
+    print(f"OSI: {len(entries)} entradas gravadas em cache.")
+    return EXIT_OK if entries else EXIT_NOTHING_TO_DO
 
 
 def cli(argv: list[str] | None = None) -> int:
     """Entry point. Returns an exit code; see EXIT_* above."""
+    if argv is None and len(sys.argv) == 1 and sys.stdin.isatty():
+        from modules.tui import run_tui
+
+        built = run_tui()
+        if built is None:
+            return EXIT_NOTHING_TO_DO
+        return cli(built)
+
     args = build_parser().parse_args(argv)
+    if args.refresh_osi_list:
+        return refresh_osi_list(port=args.port)
     target_day = args.day or (date.today() - timedelta(days=1))
     strategy_type = StrategyType(args.strategy)
 
