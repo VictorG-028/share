@@ -7,11 +7,13 @@ as time passes.
 """
 
 import argparse
+import sys
 from datetime import date, time, timedelta
 
 import pytest
 
 import main
+import modules.tui as tui
 from models.appointment import Appointment
 from modules.strategy import StrategyType
 
@@ -94,6 +96,71 @@ def test_without_fill_or_save_the_browser_is_never_touched(monkeypatch):
 
     monkeypatch.setattr(main, "punch", _boom)
     assert main.cli(["--day", FRIDAY.isoformat()]) == main.EXIT_OK
+
+
+# ------------------------------------------------------------- tui trigger
+
+
+def test_tui_triggers_with_no_real_args_and_a_real_terminal(monkeypatch):
+    monkeypatch.setattr(sys, "argv", ["auto-appointment"])
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr(tui, "run_tui", lambda: ["--day", FRIDAY.isoformat()])
+    seen: list[date] = []
+    monkeypatch.setattr(main, "run", lambda d, s, **kw: seen.append(d) or None)
+    main.cli()
+    assert seen == [FRIDAY]  # recursed into cli(built) with the TUI's argv
+
+
+def test_tui_cancellation_is_nothing_to_do(monkeypatch):
+    monkeypatch.setattr(sys, "argv", ["auto-appointment"])
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+    monkeypatch.setattr(tui, "run_tui", lambda: None)
+    assert main.cli() == main.EXIT_NOTHING_TO_DO
+
+
+def test_tui_does_not_trigger_with_real_args(monkeypatch):
+    monkeypatch.setattr(sys, "argv", ["auto-appointment", "--day", FRIDAY.isoformat()])
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+
+    def _boom():
+        raise AssertionError("run_tui() nao deveria ser chamado com argv real")
+
+    monkeypatch.setattr(tui, "run_tui", _boom)
+    seen: list[date] = []
+    monkeypatch.setattr(main, "run", lambda d, s, **kw: seen.append(d) or None)
+    main.cli()
+    assert seen == [FRIDAY]
+
+
+def test_tui_does_not_trigger_without_a_real_terminal(monkeypatch):
+    monkeypatch.setattr(sys, "argv", ["auto-appointment"])
+    monkeypatch.setattr("sys.stdin.isatty", lambda: False)
+
+    def _boom():
+        raise AssertionError("run_tui() nao deveria ser chamado sem tty")
+
+    monkeypatch.setattr(tui, "run_tui", _boom)
+    seen: list[date] = []
+    monkeypatch.setattr(main, "run", lambda d, s, **kw: seen.append(d) or None)
+    main.cli()
+    assert seen == [YESTERDAY]
+
+
+def test_cli_of_empty_list_never_triggers_the_tui(monkeypatch):
+    # The literal invariant: main.cli([]) must mean exactly what it means
+    # today ("yesterday, dry mode"), regardless of real sys.argv/isatty --
+    # see test_defaults_to_yesterday.
+    monkeypatch.setattr(sys, "argv", ["auto-appointment"])
+    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+
+    def _boom():
+        raise AssertionError("run_tui() nao deveria ser chamado para cli([])")
+
+    monkeypatch.setattr(tui, "run_tui", _boom)
+    seen: list[date] = []
+    monkeypatch.setattr(main, "run", lambda d, s, **kw: seen.append(d) or None)
+    main.cli([])
+    assert seen == [YESTERDAY]
 
 
 # ---------------------------------------------------------------------- week

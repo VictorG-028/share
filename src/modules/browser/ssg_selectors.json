@@ -49,7 +49,8 @@
     "diaVazio": "Um dia sem apontamento vem recolhido e SEM linhas -- so os templates .hide. E preciso expandir e clicar em adicionar linha 2x (E/S) e 1x (apontamento).",
     "campoMascarado": "Ver receitaDigitacao. Digitar direto sem limpar produz lixo: '0903' virou '90:30'.",
     "observacaoPontoEVirgula": "Nao confundir: apos salvar, a observacao vazia volta do servidor como ';'. Nao foi ninguem que digitou -- e o default do site.",
-    "websocketOrigin": "Cliente WebSocket que manda header Origin leva 403 do Chromium no handshake CDP. Em Python usar websocket-client com suppress_origin=True (o WebSocket do Node nao manda Origin, por isso scripts .mjs funcionam sem nada)."
+    "websocketOrigin": "Cliente WebSocket que manda header Origin leva 403 do Chromium no handshake CDP. Em Python usar websocket-client com suppress_origin=True (o WebSocket do Node nao manda Origin, por isso scripts .mjs funcionam sem nada).",
+    "botaoAjudaOsiNaoEhSeguro": "O botao '?' (.button-show-items) ao lado do campo de OSI NAO e um popup somente-leitura -- um clique produziu um modal bootbox 'Perfeito! Registros alterados com sucesso' para o dia filtrado, contradizendo 'salvar' (nenhum modal). Uma checagem read_day()/row_counts() depois nao mostrou linha duplicada nem valor alterado, mas o efeito real do botao ficou sem confirmar. NAO USAR para nada automatizado ate entender o que ele realmente faz."
   },
   "receitaDigitacao": [
     "1. clique de mouse REAL no campo (Input.dispatchMouseEvent press + release)",
@@ -59,6 +60,17 @@
     "5. digitar SO OS DIGITOS (0903, nao 09:03), ~120ms por tecla, via Input.dispatchKeyEvent com text/unmodifiedText",
     "6. reler el.value e comparar com o esperado ANTES de salvar"
   ],
+  "listaOsi": {
+    "status": "NAO RESOLVIDO (sondado em 2026-08-29) -- ver modules/osi_catalog/probe.py",
+    "rotaDedicada": "'Pesquisar OSI' -> #/osi/get-list existe no menu, mas fica dentro de submenus recolhidos aninhados (tamanho zero no DOM ate expandir uma cadeia longa de hover/clique). Nao tentado a fundo -- pode valer a pena futuramente.",
+    "botaoAjuda": "Ver armadilhas.botaoAjudaOsiNaoEhSeguro -- NAO usar.",
+    "endpointReal": "GET https://ssg.sysmap.com.br/api/<id>/timesheet-recording/get-osi-project-activity-by-term?current-page=<...>&term=<termo>&userName=<nome>&date=<DD/MM/AAAA> -- confirmado via DevTools com digitacao humana real. Um term vazio tambem e chamado pelo proprio app (parece popular a lista default ao criar a linha).",
+    "bloqueadores": [
+      "So dispara com tecla de verdade -- Input.dispatchKeyEvent (que funciona pros campos mascarados de hora/data a semana toda) nao aciona esse endpoint. Confirmado sem NENHUM request no dominio Network do CDP durante digitacao sintetica.",
+      "Depende de sessao/token que pode expirar independente da navegacao normal -- uma chamada real retornou ReturnCode INVALID_TOKEN_4. Um reload da pagina NAO resolve com seguranca: uma tentativa de reload derrubou a sessao (foi parar na tela de login do portal)."
+    ],
+    "proximaTentativa": "Entender por que o dispatchKeyEvent nao aciona o listener desse campo especifico (diferente dos campos mascarados), OU chamar o endpoint direto com um token/cookie ja validado, sem depender de reload."
+  },
   "implementacao": {
     "controller": "src/modules/browser/ssg_controller.py -- copia executavel destes seletores",
     "navegador": "src/modules/browser/browsers.py -- Edge, fallback Chrome, perfil dedicado, lembra qual subiu",
