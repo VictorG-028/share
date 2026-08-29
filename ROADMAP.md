@@ -155,7 +155,15 @@ auto-appointment [--day DATA] [--week] [--strategy static|natural_random]
       site, semeando a cópia do usuário a partir da empacotada na primeira vez, e
       recusando registrar o mesmo dia duas vezes
 - [ ] De onde vem a **OSI**: hoje é uma constante (`82695`), sobrescrevível por
-      `--osi`. Ler da tela `#/osi/get-list` fica para quando incomodar
+      `--osi`. Sondado em 2026-08-29 (ver `ssg_selectors.json`'s `listaOsi`):
+      a rota dedicada `#/osi/get-list` existe mas fica presa em submenus
+      recolhidos; o botão de ajuda ao lado do campo **não é seguro** (produziu
+      um modal de "sucesso" ao ser clicado); o endpoint real do typeahead foi
+      encontrado (`GET .../get-osi-project-activity-by-term`) mas só responde
+      a digitação de verdade, não a teclas sintéticas via CDP, e depende de um
+      token que um reload não renova com segurança. `--refresh-osi-list` e o
+      cache (`osi_catalog.json`) já existem; a extração em si
+      (`modules/osi_catalog/probe.py`) fica como TODO explícito
 
 ## Etapa 6 — Empacotamento ✅ concluída
 
@@ -193,6 +201,43 @@ SmartScreen/antivírus reclamarem de `.exe` onefile não assinado é esperado.
 
 **Não verificado ainda:** dirigir o browser *a partir do exe congelado*
 (`--fill`). Os módulos estão no bundle, mas o caminho não foi exercido.
+
+## Etapa 7 — UI interativa (grid-form) ✅ implementada
+
+Double-clicar o `.exe` (ou rodar `auto-appointment` sem argumentos, num
+terminal de verdade) abre uma tela única em grid (`modules/tui/`) em vez do
+modo seco padrão: Dia/Mês/Ano/Force navegados e editados só com setas (e
+WASD), um seletor de OSI (spinner sobre o cache da Etapa 5), e um toggle
+Salvar Y/N que substitui o prompt de confirmação em texto livre. Ao submeter,
+monta a mesma lista de argv que já seria digitada e chama `cli()` normalmente
+— nada de lógica nova em `punch()`/`run()`.
+
+- [x] Trigger em `cli()` (gated em `argv is None`, não no bloco
+      `if __name__ == "__main__":` -- o stub do console-script do `uv run`
+      chama `cli()` sob o **seu próprio** `__main__`, então o bloco de
+      `main.py` nunca roda nesse caminho; ver comentário no código)
+- [x] `main.cli([])` continua significando exatamente "ontem, modo seco"
+- [x] Rollover de calendário real no Dia; clamp de mês/ano (`calendar.monthrange`)
+- [x] Validação ao vivo reaproveitando `skip_reason()` (vermelho = hoje/futuro,
+      nunca libera; amarelo = fim de semana/feriado, libera com Force)
+- [x] Navegação só-pra-frente (Right avança e dá a volta; Left nunca troca de
+      linha) -- decisão explícita, não é um grid simétrico
+- [x] Testado com `create_pipe_input()`/`DummyOutput` (sem terminal real) para
+      a lógica de teclas; lógica pura (estado/argv/render) testada à parte,
+      sem importar `prompt_toolkit`
+- [ ] Confirmação visual num terminal de verdade (PowerShell/cmd/duplo-clique)
+      ainda depende do usuário -- os testes automatizados não têm como abrir um
+      console Win32 de verdade
+
+Dependência nova: `prompt_toolkit` (+ `wcwidth`). Aumenta o bundle do `.exe`
+de propósito -- ver decisão registrada na memória do projeto
+(`ui-interativa-grid-form`). Uma reescrita em stdlib puro, pra reduzir o
+bundle de novo, fica pra depois, como entrega separada.
+
+**Fora de escopo por ora:** `--week`/`--strategy`/`--port` não entram na tela
+(regra de gerência nova proibiu apontamento semanal em lote -- uso agora é
+dia a dia); criar/salvar novos projetos OSI de dentro do software (tela nova,
+aprovação de gestor) é uma feature grande, só anotada.
 
 ---
 
