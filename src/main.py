@@ -292,4 +292,21 @@ def cli(argv: list[str] | None = None) -> int:
 
 
 if __name__ == "__main__":
-    sys.exit(cli())
+    # A frozen build launched by double-click gets its own console, which
+    # Windows closes the instant the process exits -- a one-line dry-run (or
+    # an unhandled exception) then reads as a crash. Pause before closing,
+    # but only when stdin is a real console: an unattended run (Task
+    # Scheduler, a pipe) must not hang waiting for a key that never comes.
+    try:
+        exit_code = cli()
+    except Exception:
+        import traceback
+
+        traceback.print_exc()
+        exit_code = 1
+    if getattr(sys, "frozen", False) and sys.stdin.isatty():
+        try:
+            input("\nPressione Enter para fechar...")
+        except EOFError:
+            pass
+    sys.exit(exit_code)
