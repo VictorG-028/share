@@ -101,6 +101,26 @@ def test_status_future_is_blocked_red_even_with_force():
     assert status.color == "red"
 
 
+def test_status_is_memoized_per_date_so_repeated_calls_skip_is_holiday(monkeypatch):
+    # Regression: render_text() calls status() on every redraw, including a
+    # pure Left/Right focus move that never changes the date. Before this was
+    # memoized, that repeated skip_reason() -> is_holiday() call could hit the
+    # network (BrasilAPI) or re-read a cache file on every keystroke -- a real
+    # lag reported when navigating quickly.
+    calls = []
+    monkeypatch.setattr(main, "is_holiday", lambda d, **kw: calls.append(d) or False)
+    cursor = _cursor(FRIDAY)
+
+    cursor.status()
+    cursor.status()
+    cursor.status()
+    assert len(calls) == 1  # repeated calls for the same date/force: no extra work
+
+    cursor.bump_day(-1)  # an actual date change (still a weekday) must recompute
+    cursor.status()
+    assert len(calls) == 2
+
+
 def test_status_past_weekday_is_clean():
     cursor = _cursor(FRIDAY)
     status = cursor.status()

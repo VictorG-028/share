@@ -6,7 +6,7 @@ so this is plain-pytest testable without a terminal.
 from __future__ import annotations
 
 import calendar
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, timedelta
 
 from modules.osi_catalog.entry import OsiEntry
@@ -29,12 +29,34 @@ class DateStatus:
     message: str
 
 
+def _compute_status(day: int, month: int, year: int, force: bool) -> DateStatus:
+    # Lazy import: avoids modules/ depending on main.py at import time, same
+    # discipline main.py's own punch()/refresh_osi_list() already use for the
+    # browser stack. Reused, not reimplemented: the past/weekend/holiday
+    # rules live in exactly one place.
+    from main import skip_reason
+
+    target = date(year, month, day)
+    reason = skip_reason(target, force=force)
+    if target >= date.today():
+        # The unconditional rule: force never lifts this one.
+        return DateStatus(blocked=True, color="red", message=reason or "")
+    if reason is None:
+        return DateStatus(blocked=False, color=None, message="")
+    return DateStatus(blocked=True, color="yellow", message=reason)
+
+
 @dataclass
 class DateCursor:
     day: int
     month: int
     year: int
     force: bool = False
+    # Memoized status, keyed by the (day, month, year, force) it was computed
+    # for -- per-instance, not global, so it can never leak between tests or
+    # sessions. `field(...)` because a dict/tuple default must not be shared
+    # across instances.
+    _status_cache: dict = field(default_factory=dict, init=False, repr=False, compare=False)
 
     def as_date(self) -> date:
         return date(self.year, self.month, self.day)
@@ -66,20 +88,18 @@ class DateCursor:
         self.force = not self.force
 
     def status(self) -> DateStatus:
-        # Lazy import: avoids modules/ depending on main.py at import time,
-        # same discipline main.py's own punch()/refresh_osi_list() already
-        # use for the browser stack. Reused, not reimplemented: the
-        # past/weekend/holiday rules live in exactly one place.
-        from main import skip_reason
-
-        target = self.as_date()
-        reason = skip_reason(target, force=self.force)
-        if target >= date.today():
-            # The unconditional rule: force never lifts this one.
-            return DateStatus(blocked=True, color="red", message=reason or "")
-        if reason is None:
-            return DateStatus(blocked=False, color=None, message="")
-        return DateStatus(blocked=True, color="yellow", message=reason)
+        # render_text() calls this on every redraw -- including a pure
+        # Left/Right focus move, which never changes the date -- and
+        # skip_reason() can hit is_holiday(), which can hit the network
+        # (BrasilAPI) or at least re-read a JSON cache file from disk.
+        # Memoized per instance by (day, month, year, force) so navigating
+        # focus around never re-triggers that work; only an actual date/force
+        # change does. Unbounded but harmless: one form has a handful of
+        # distinct dates visited per session, never thousands.
+        key = (self.day, self.month, self.year, self.force)
+        if key not in self._status_cache:
+            self._status_cache[key] = _compute_status(*key)
+        return self._status_cache[key]
 
 
 @dataclass
