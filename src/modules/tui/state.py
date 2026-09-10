@@ -104,33 +104,79 @@ class DateCursor:
 
 @dataclass
 class OsiSpinner:
+    """
+    The OSI choice: ``entries`` may be empty, and then nothing can be punched.
+
+    ``picking`` is the overlay -- the same list, shown whole, with its own
+    cursor. It exists because cycling one line at a time with the arrows is
+    fine for two OSIs and useless for twenty, half of them opened by the
+    manager with someone else's name on them.
+    """
+
     entries: list[OsiEntry]
     index: int = 0
     is_fallback: bool = False
+    picking: bool = False
+    pick_index: int = 0
 
-    def current(self) -> OsiEntry:
+    def current(self) -> OsiEntry | None:
+        if not self.entries:
+            return None
         return self.entries[self.index % len(self.entries)]
 
     def bump(self, delta: int) -> None:
-        self.index = (self.index + delta) % len(self.entries)
+        if self.entries:
+            self.index = (self.index + delta) % len(self.entries)
+
+    # ------------------------------------------------------------- overlay
+
+    def open_picker(self) -> None:
+        """Open the list positioned on what is selected now."""
+        if self.entries:
+            self.picking = True
+            self.pick_index = self.index % len(self.entries)
+
+    def move_pick(self, delta: int) -> None:
+        if self.entries:
+            self.pick_index = (self.pick_index + delta) % len(self.entries)
+
+    def choose(self) -> None:
+        """Take the highlighted row and close."""
+        self.index = self.pick_index
+        self.picking = False
+
+    def cancel_pick(self) -> None:
+        """Close without changing the selection."""
+        self.picking = False
 
 
 def load_osi_spinner() -> OsiSpinner:
-    from modules.browser.ssg_controller import DEFAULT_OSI_NUMBER
+    """
+    The catalog, or the last-used OSI alone, or nothing at all.
+
+    There is no built-in default OSI any more: one written into the code is a
+    dead project a month later (82695 was), and booking the wrong OSI is worse
+    than being told to run ``refresh-osi-list``.
+    """
     from modules.osi_catalog import load_catalog, load_last_used
 
     entries = load_catalog()
-    if not entries:
-        fallback = OsiEntry(
-            number=DEFAULT_OSI_NUMBER,
-            label=f"OSI {DEFAULT_OSI_NUMBER} (padrao)",
-        )
-        return OsiSpinner(entries=[fallback], is_fallback=True)
-
     last_used = load_last_used()
+    if not entries:
+        if not last_used:
+            return OsiSpinner(entries=[], is_fallback=True)
+        return OsiSpinner(
+            entries=[OsiEntry.from_label(last_used)], is_fallback=True
+        )
+
     index = next(
-        (i for i, entry in enumerate(entries) if entry.number == last_used), 0
+        (i for i, entry in enumerate(entries) if entry.label == last_used), None
     )
+    if index is None:
+        # Files written before the catalog went free-text hold a bare number.
+        index = next(
+            (i for i, entry in enumerate(entries) if entry.number == last_used), 0
+        )
     return OsiSpinner(entries=entries, index=index)
 
 
@@ -174,6 +220,12 @@ class FormState:
         self.field = max(0, self.field - 1)
 
     def bump_value(self, delta: int) -> None:
+        if self.osi.picking:
+            # The overlay owns the arrows while it is up -- and inverts them:
+            # on the form Down means "one less" (a day, a month), in a list it
+            # means the row below.
+            self.osi.move_pick(-delta)
+            return
         name = self.focus_name()
         if name == "day":
             self.date.bump_day(delta)
@@ -188,9 +240,18 @@ class FormState:
         elif name == "save":
             self.save = not self.save
 
+    def block_reason(self) -> str | None:
+        """Why Enter would not submit, or ``None``. Also what the form shows."""
+        status = self.date.status()
+        if status.blocked:
+            return status.message
+        if self.osi.current() is None:
+            return "sem OSI para apontar -- rode refresh-osi-list"
+        return None
+
     def try_submit(self) -> list[str] | None:
         """``None`` if blocked -- checked regardless of current focus."""
-        if self.date.status().blocked:
+        if self.block_reason() is not None:
             return None
         from modules.tui.argv_builder import build_argv
 

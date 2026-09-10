@@ -16,7 +16,7 @@ import json
 from datetime import datetime
 from pathlib import Path
 
-from modules.osi_catalog.entry import OsiEntry
+from modules.osi_catalog.entry import NUMBER_NOT_CAPTURED, OsiEntry
 from modules.paths import user_data_dir
 
 CATALOG_FILE_NAME = "osi_catalog.json"
@@ -46,7 +46,12 @@ def load_catalog() -> list[OsiEntry]:
         with open(path, encoding="utf-8") as handle:
             payload = json.load(handle)
         return [
-            OsiEntry(number=entry["number"], label=entry["label"])
+            # ``label`` is the identity and must be there; ``number`` is a
+            # trace and a file written by an older build may not carry it.
+            OsiEntry(
+                number=entry.get("number") or NUMBER_NOT_CAPTURED,
+                label=entry["label"],
+            )
             for entry in payload.get("entries", [])
         ]
     except (OSError, json.JSONDecodeError, KeyError, TypeError):
@@ -67,20 +72,28 @@ def save_catalog(entries: list[OsiEntry]) -> None:
 
 
 def load_last_used() -> str | None:
-    """The OSI number from the last real save, or ``None``."""
+    """
+    The OSI label from the last real save, or ``None``.
+
+    ``osi_number`` is what files written before the catalog went free-text
+    hold; it is still a valid selector (a bare number is a unique substring of
+    its own row), so an old file keeps its preference instead of silently
+    resetting to the top of the list.
+    """
     path = last_used_file()
     if not path.exists():
         return None
     try:
         with open(path, encoding="utf-8") as handle:
-            return json.load(handle).get("osi_number")
-    except (OSError, json.JSONDecodeError):
+            payload = json.load(handle)
+        return payload.get("osi_label") or payload.get("osi_number")
+    except (OSError, json.JSONDecodeError, AttributeError):
         return None
 
 
-def save_last_used(number: str) -> None:
+def save_last_used(label: str) -> None:
     try:
         with open(last_used_file(), "w", encoding="utf-8") as handle:
-            json.dump({"osi_number": number}, handle)
+            json.dump({"osi_label": label}, handle, ensure_ascii=False)
     except OSError:
         pass

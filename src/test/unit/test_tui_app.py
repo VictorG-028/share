@@ -26,6 +26,8 @@ SATURDAY = date(2026, 5, 30)
 
 UP, DOWN, RIGHT, LEFT = "\x1b[A", "\x1b[B", "\x1b[C", "\x1b[D"
 ENTER, ESCAPE, CTRL_C = "\r", "\x1b\x1b", "\x03"
+TAB, SPACE = "\t", " "
+TO_OSI = RIGHT * 4  # day -> month -> year -> force -> osi row
 
 
 @pytest.fixture(autouse=True)
@@ -50,7 +52,7 @@ def _run(state: FormState, keys: str):
 def test_enter_from_a_valid_past_date_submits():
     state = _state(PAST_WEEKDAY)
     result = _run(state, ENTER)
-    assert result == ["--day", "29/05/2026", "--osi", "82695", "--save", "--yes"]
+    assert result == ["--day", "29/05/2026", "--osi", "OSI 82695", "--save", "--yes"]
 
 
 def test_enter_on_todays_default_is_blocked_then_escape_cancels():
@@ -77,4 +79,62 @@ def test_force_unblocks_a_weekend_date_and_shows_in_argv():
 def test_ctrl_c_cancels():
     state = _state(PAST_WEEKDAY)
     result = _run(state, CTRL_C)
+    assert result is None
+
+
+# --------------------------------------------------------------- OSI overlay
+
+
+def _three_osi_state(d: date = PAST_WEEKDAY) -> FormState:
+    state = _state(d)
+    state.osi = OsiSpinner(
+        entries=[
+            OsiEntry.from_label("OSI 83270 | P | A - 1"),
+            OsiEntry.from_label("coe tech - setembro - 2026 | Fulano - 2"),
+            OsiEntry.from_label("coe tech - agosto - 2026 | Fulano - 3"),
+        ]
+    )
+    return state
+
+
+def test_space_on_the_osi_row_opens_the_list_and_space_chooses():
+    state = _three_osi_state()
+    _run(state, TO_OSI + SPACE + DOWN + SPACE + CTRL_C)
+    assert state.osi.picking is False
+    assert state.osi.current().label.startswith("coe tech - setembro")
+
+
+def test_enter_on_the_osi_row_opens_the_list_instead_of_submitting():
+    state = _three_osi_state()
+    result = _run(state, TO_OSI + ENTER + CTRL_C)
+    assert state.osi.picking is True
+    assert result is None  # nothing was submitted
+
+
+def test_tab_opens_the_list_and_tab_again_leaves_it_unchanged():
+    state = _three_osi_state()
+    _run(state, TO_OSI + TAB + DOWN + DOWN + TAB + CTRL_C)
+    assert state.osi.picking is False
+    assert state.osi.current().label.startswith("OSI 83270")
+
+
+def test_escape_in_the_list_goes_back_without_choosing_and_keeps_the_form():
+    state = _three_osi_state()
+    result = _run(state, TO_OSI + SPACE + DOWN + ESCAPE + CTRL_C)
+    assert state.osi.picking is False
+    assert state.osi.current().label.startswith("OSI 83270")
+    assert result is None
+
+
+def test_choosing_in_the_list_is_what_the_submitted_argv_carries():
+    state = _three_osi_state()
+    # pick the second OSI, walk to the Salvar row, submit
+    result = _run(state, TO_OSI + SPACE + DOWN + ENTER + RIGHT + ENTER)
+    assert result is not None
+    assert result[2:4] == ["--osi", "coe tech - setembro - 2026 | Fulano - 2"]
+
+
+def test_ctrl_c_leaves_even_with_the_list_open():
+    state = _three_osi_state()
+    result = _run(state, TO_OSI + SPACE + CTRL_C)
     assert result is None

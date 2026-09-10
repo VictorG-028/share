@@ -168,14 +168,41 @@ def test_osi_spinner_bump_wraps_both_directions():
     assert spinner.current().number == "1"
 
 
-def test_load_osi_spinner_falls_back_when_catalog_is_empty(monkeypatch):
+def test_load_osi_spinner_is_empty_when_nothing_was_ever_captured(monkeypatch):
+    # No built-in default OSI: one written into the code is a dead project a
+    # month later. Nothing to offer means nothing to punch.
     import modules.osi_catalog as osi_catalog
 
     monkeypatch.setattr(osi_catalog, "load_catalog", lambda: [])
     monkeypatch.setattr(osi_catalog, "load_last_used", lambda: None)
     spinner = load_osi_spinner()
     assert spinner.is_fallback is True
-    assert len(spinner.entries) == 1
+    assert spinner.entries == []
+    assert spinner.current() is None
+
+
+def test_load_osi_spinner_falls_back_to_the_last_used_alone(monkeypatch):
+    import modules.osi_catalog as osi_catalog
+
+    monkeypatch.setattr(osi_catalog, "load_catalog", lambda: [])
+    monkeypatch.setattr(osi_catalog, "load_last_used", lambda: "OSI 83270 | P | A - 1")
+    spinner = load_osi_spinner()
+    assert spinner.is_fallback is True
+    assert spinner.current().label == "OSI 83270 | P | A - 1"
+
+
+def test_load_osi_spinner_matches_last_used_by_label(monkeypatch):
+    import modules.osi_catalog as osi_catalog
+
+    entries = [
+        OsiEntry.from_label("OSI 1 | P | A - 1"),
+        OsiEntry.from_label("coe tech - setembro - 2026 | Fulano - 2"),
+    ]
+    monkeypatch.setattr(osi_catalog, "load_catalog", lambda: entries)
+    monkeypatch.setattr(
+        osi_catalog, "load_last_used", lambda: "coe tech - setembro - 2026 | Fulano - 2"
+    )
+    assert load_osi_spinner().current() == entries[1]
 
 
 def test_load_osi_spinner_defaults_to_last_used(monkeypatch):
@@ -201,3 +228,65 @@ def test_load_osi_spinner_defaults_to_zero_when_last_used_not_found(monkeypatch)
     monkeypatch.setattr(osi_catalog, "load_last_used", lambda: "does-not-exist")
     spinner = load_osi_spinner()
     assert spinner.current().number == "1"
+
+
+# ------------------------------------------------------------- OSI overlay
+
+
+def _picker_state(labels: list[str]) -> FormState:
+    state = FormState(
+        date=DateCursor(day=29, month=5, year=2026),
+        osi=OsiSpinner(entries=[OsiEntry.from_label(label) for label in labels]),
+    )
+    state.row = 1  # the OSI row
+    return state
+
+
+def test_opening_the_picker_starts_on_what_is_selected():
+    state = _picker_state(["a", "b", "c"])
+    state.osi.bump(1)
+    state.osi.open_picker()
+    assert state.osi.picking is True
+    assert state.osi.pick_index == 1
+
+
+def test_down_moves_down_the_list_and_leaves_the_form_alone():
+    # bump_value(-1) is what the Down arrow sends; in a list that is the row
+    # below, not "one less".
+    state = _picker_state(["a", "b", "c"])
+    state.osi.open_picker()
+    state.bump_value(-1)
+    assert state.osi.pick_index == 1
+    assert state.osi.index == 0  # nothing chosen yet
+
+
+def test_choosing_takes_the_highlighted_row_and_closes():
+    state = _picker_state(["a", "b", "c"])
+    state.osi.open_picker()
+    state.bump_value(-1)
+    state.osi.choose()
+    assert state.osi.picking is False
+    assert state.osi.current().label == "b"
+
+
+def test_cancelling_the_picker_keeps_the_old_selection():
+    state = _picker_state(["a", "b", "c"])
+    state.osi.open_picker()
+    state.bump_value(-1)
+    state.osi.cancel_pick()
+    assert state.osi.picking is False
+    assert state.osi.current().label == "a"
+
+
+def test_the_picker_wraps_at_both_ends():
+    state = _picker_state(["a", "b"])
+    state.osi.open_picker()
+    state.osi.move_pick(-1)
+    assert state.osi.pick_index == 1
+
+
+def test_submitting_is_blocked_without_any_osi():
+    state = _picker_state([])
+    state.date = DateCursor(day=29, month=5, year=2026)
+    assert state.block_reason() is not None
+    assert state.try_submit() is None

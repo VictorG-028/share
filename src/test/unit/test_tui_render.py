@@ -52,3 +52,54 @@ def test_focused_segment_is_marked():
     state.row, state.field = 0, 1  # month
     text = render_text(state)
     assert "\033[7m" in text  # reverse-video marker present
+
+
+# --------------------------------------------------------------- OSI overlay
+
+
+def _picker(labels: list[str], cursor: int = 0) -> FormState:
+    state = FormState(
+        date=DateCursor(day=PAST_WEEKDAY.day, month=PAST_WEEKDAY.month, year=PAST_WEEKDAY.year),
+        osi=OsiSpinner(entries=[OsiEntry.from_label(label) for label in labels]),
+    )
+    state.row = 1
+    state.osi.open_picker()
+    state.osi.pick_index = cursor
+    return state
+
+
+def test_the_overlay_replaces_the_form():
+    text = render_text(_picker(["OSI 1 | P | A - 1", "coe tech | Fulano - 2"]))
+    assert "Escolha a OSI" in text
+    assert "Salvar?" not in text
+    assert "coe tech | Fulano - 2" in text
+
+
+def test_the_overlay_marks_the_row_under_the_cursor():
+    text = render_text(_picker(["a", "b", "c"], cursor=1))
+    assert "> \033[7mb\033[0m" in text
+    assert "  a" in text
+
+
+def test_the_overlay_scrolls_to_keep_a_far_cursor_visible():
+    labels = [f"OSI {i} | P | A - {i}" for i in range(40)]
+    text = render_text(_picker(labels, cursor=39))
+    assert "OSI 39 | P | A - 39" in text
+    assert "OSI 0 | P | A - 0" not in text
+    assert "(40/40)" in text
+
+
+def test_a_very_long_label_is_cut_instead_of_wrapping():
+    text = render_text(_picker(["x" * 200]))
+    assert "x" * 200 not in text
+    assert "..." in text
+
+
+def test_no_osi_at_all_says_so_in_red():
+    state = FormState(
+        date=DateCursor(day=PAST_WEEKDAY.day, month=PAST_WEEKDAY.month, year=PAST_WEEKDAY.year),
+        osi=OsiSpinner(entries=[], is_fallback=True),
+    )
+    text = render_text(state)
+    assert RED in text
+    assert "rode --refresh-osi-list" in text

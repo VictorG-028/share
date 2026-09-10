@@ -220,3 +220,17 @@ def test_yes_skips_the_prompt():
 def test_no_tty_refuses_instead_of_guessing(monkeypatch):
     monkeypatch.setattr("sys.stdin.isatty", lambda: False)
     assert main._confirm(_appointment(), "82695", assume_yes=False) is False
+
+
+def test_punch_refuses_when_there_is_no_osi_to_use(monkeypatch, capsys):
+    # No built-in default any more: the browser must not even open.
+    import modules.osi_catalog as osi_catalog
+
+    monkeypatch.setattr(osi_catalog, "load_last_used", lambda: None)
+    assert main.punch([_appointment()], save=False) == main.EXIT_ERROR
+    assert "refresh-osi-list" in capsys.readouterr().out
+
+
+def test_the_confirmation_shows_the_whole_label_not_just_a_number():
+    label = "coe tech - setembro - 2026 | Walber Hugo da Silva - 427465"
+    assert label in main._describe(_appointment(), label)

@@ -154,16 +154,28 @@ auto-appointment [--day DATA] [--week] [--strategy static|natural_random]
 - [x] `append_appointment` grava no histórico **só** o que foi realmente salvo no
       site, semeando a cópia do usuário a partir da empacotada na primeira vez, e
       recusando registrar o mesmo dia duas vezes
-- [ ] De onde vem a **OSI**: hoje é uma constante (`82695`), sobrescrevível por
-      `--osi`. Sondado em 2026-08-29 (ver `ssg_selectors.json`'s `listaOsi`):
-      a rota dedicada `#/osi/get-list` existe mas fica presa em submenus
-      recolhidos; o botão de ajuda ao lado do campo **não é seguro** (produziu
-      um modal de "sucesso" ao ser clicado); o endpoint real do typeahead foi
-      encontrado (`GET .../get-osi-project-activity-by-term`) mas só responde
-      a digitação de verdade, não a teclas sintéticas via CDP, e depende de um
-      token que um reload não renova com segurança. `--refresh-osi-list` e o
-      cache (`osi_catalog.json`) já existem; a extração em si
-      (`modules/osi_catalog/probe.py`) fica como TODO explícito
+- [x] De onde vem a **OSI**: resolvido em 2026-09-04 pelo botão "?" ao lado
+      do campo de OSI na tela de apontamento. Confirmado somente-leitura por
+      captura de rede (um único `GET get-osi-project-activity-by-term` com
+      `term` vazio) e `read_day()`/`row_counts()` idênticos antes e depois; o
+      modal de "sucesso" visto em 2026-08-29 não reapareceu (clique em
+      elemento errado naquela vez). A lista depende do `date=` do painel
+      clicado, então `--refresh-osi-list` filtra os últimos 30 dias e clica no
+      apontamento passado mais recente -- nunca hoje, nunca criando linha.
+      Código: `SsgController.list_osi_help_items` +
+      `modules/osi_catalog/probe.py`; recon em
+      `sysmap_ssg/pages/apontamento/`. A leitura da tabela de
+      `#/osi/get-list` ficou documentada como alternativa não adotada
+- [x] **Cadastrar OSI nova** (2026-09-05): `register-new-osi` (3º `.exe`) e a
+      flag `--register-new-osi`. Fluxo na ordem do usuário na tela
+      `#/osi/get-form`; o período aceito de cada atividade só existe no
+      alerta de recusa de um Gravar com datas ±1 ano (sondado: `POST
+      osi/save` responde 200 com "Erro! O período permitido ... é de
+      DD/MM/AAAA à DD/MM/AAAA."), então o programa faz isso por atividade e
+      mostra os limites antes de o usuário escolher; esforço = o que faz o
+      "por Dia Útil (H)" do site marcar 8. Recon em
+      `sysmap_ssg/pages/cadastro-de-osi/`. **Pendente:** confirmar o popup
+      da segunda descrição e o sinal de sucesso na primeira criação real
 
 ## Etapa 6 — Empacotamento ✅ concluída
 

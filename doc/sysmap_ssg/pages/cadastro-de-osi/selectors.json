@@ -1,0 +1,43 @@
+{
+  "_comment": "Seletores da tela Cadastro de OSI, sondados em 2026-09-05. Nada tem id/name (exceto o painel #panel-service-order-item e a tabela #table-resume-service-order-item); tudo e ancorado por classe.",
+  "entryUrl": "https://ssg.sysmap.com.br/index.html#/osi/get-form",
+  "titulo": "Cadastro Ordem de Servico Interna",
+  "campos": {
+    "profissional": "input.textbox-professional (dynamic-autocomplete) + '?' no mesmo .input-group; 1 opcao (2 so para quem e gestor). Selecionar preenche o campo, fecha o modal e grava data-employee-name no input de atividade",
+    "descricao": "textarea.textbox-description (maxlength 999), digitacao normal (CdpPage.type_text)",
+    "projeto": "input.textbox-project + '?'; a lista sao os projetos do usuario (8 em 2026-09-05, um por mes/projeto: '47721 / COE-TECH-SETEMBRO-2025 / coe tech - setembro- 2025'). Selecionar grava data-project-name no input de atividade; NAO preenche o requisito",
+    "requisito": "input.textbox-requirement + '?'; 1 opcao ('0 | Requisito Geral')",
+    "validarDatas": "input.checkbox-date-osi -- vem marcado; e o que faz o site recusar datas fora do periodo da atividade (ValidateDateOsi=Y no POST). NAO desmarcar: a descoberta do periodo depende dele",
+    "gravar": ".button-save-osi -- e um <a class='btn ...'>, nao <button>",
+    "voltar": ".back-page"
+  },
+  "linhaAtividade": {
+    "onde": "#panel-service-order-item > #table-resume-service-order-item tbody tr (uma linha so)",
+    "atividade": "input.textbox-activity + '?'; o GET do modal usa data-project-name/data-employee-name (antes de escolher o projeto, o title do campo diz 'Para adicionar uma atividade e necessario especificar o projeto!'). Em 2026-09-05 cada projeto tinha 1 atividade ('404662 | Atividades Coe Tech')",
+    "esforcoOrcado": "input.textbox-effort-quoted (mask-decimal = plugin jQuery AutoNumeric). DIGITAR E IGNORADO (o valor fica vazio) e deixar o campo vazio no blur abre o alerta 'Erro! O campo Esforco Orcado (H) e de preenchimento obrigatorio!' sem ninguem clicar em Gravar. Preencher SO via jQuery(el).autoNumeric('set','40') + .trigger('keyup').trigger('change').trigger('focusout') -> '40,00'",
+    "apenasDiasUteis": "input.checkbox-business-day -- vem marcado (IsQuottedByBusinessDay=Y)",
+    "inicioEstimado": "input.textbox-estimated-start (mask-date + date-picker): receita de ../../campo-mascarado.md. O datepicker abre ao digitar -- fechar CLICANDO em outro lugar; Escape LIMPA o campo",
+    "terminoEstimado": "input.textbox-estimated-end -- idem",
+    "esforcoPorDiaUtil": "span.label-effort-business-day -- calculado pelo site (esforco / dias uteis do periodo, 2 casas, virgula decimal: '0,08' para 40h em 2 anos); so calcula com as duas datas preenchidas e recalcula no change do esforco. Alvo: 8",
+    "custoOrcado": "span.label-quoted-cost -- 'N/A' quando Valor/Hora e N/A"
+  },
+  "gravarComDatasErradas": {
+    "request": "POST https://ssg.sysmap.com.br/api/<id>/osi/save com data={StatusId,ProjectId,UserName,Description,UserHourRate,UserManagerName,ActivityName,ActivityId,QuottedEffort,StartDate,EndDate,RequirementId,StatusName,IsQuottedByBusinessDay,ValidateDateOsi} -- responde HTTP 200 mesmo recusando (o erro vem no corpo)",
+    "alerta": ".bootbox.bootbox-alert: 'Erro! O periodo permitido para estimar o Inicio e Termino Estimado da atividade e de DD/MM/AAAA a DD/MM/AAAA.' (botao OK). Depois do OK o formulario continua preenchido, na mesma rota",
+    "exemplo": "projeto 47721 COE-TECH-SETEMBRO-2025, atividade 404662, datas 05/09/2025 a 05/09/2027, esforco 40 -> 'de 01/09/2025 a 30/09/2025'",
+    "uso": "e assim que modules/osi_register/flow.py descobre o periodo de cada atividade -- nao existe outra fonte (o GET do '?' nao traz datas). Datas hoje-1 ano / hoje+1 ano nunca passam"
+  },
+  "gravarValido": {
+    "status": "A CONFIRMAR na primeira criacao real: o usuario relata um popup pedindo uma segunda descricao (pode repetir a primeira). Candidato visto escondido na tela: modal com textarea.status-coment e botoes Cancelar/Gravar (button-status-change). Sinal de sucesso ainda desconhecido (alerta 'Perfeito! Registros alterados com sucesso'? redirect? Codigo preenchido no topo?)"
+  },
+  "alertas": {
+    "seletor": ".bootbox visivel -- nunca o .modal-list-items (que e o widget dos '?'); fechar pelo botao OK",
+    "obrigatorio": "'Erro! O campo Esforco Orcado (H) e de preenchimento obrigatorio!' aparece no focusout do esforco vazio"
+  },
+  "implementacao": {
+    "controller": "src/modules/browser/ssg_osi_form.py -- copia executavel destes seletores",
+    "fluxo": "src/modules/osi_register/flow.py -- prepare / discover_window / fill / submit",
+    "cli": "src/register_new_osi.py (comando register-new-osi, 3o .exe) e a flag --register-new-osi do auto-appointment",
+    "regra": "o unico clique que grava e Gravar: nas sondagens (recusado de proposito) e na criacao, sempre depois de resumo + confirmacao (--yes pula)"
+  }
+}

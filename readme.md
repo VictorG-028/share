@@ -18,6 +18,11 @@ auto-appointment --day 26/08/2026         # ou --day 2026-08-26
 auto-appointment --day 26/08/2026 --week  # segunda a sexta daquela semana
 auto-appointment --day 26/08/2026 --fill  # abre o browser, preenche e CONFERE
 auto-appointment --day 26/08/2026 --save  # grava no SSG (pergunta antes)
+auto-appointment --day 26/08/2026 --fill --osi "coe tech - setembro"   # escolhe a OSI por texto
+auto-appointment --refresh-osi-list       # lê a lista de OSI do site e atualiza o cache local
+auto-appointment --register-new-osi       # cadastra uma OSI nova (pergunta projeto/atividade, confirma antes)
+register-new-osi --list --project 49179   # só descobre atividades e períodos aceitos; não grava
+register-new-osi --project 49179 --activity "Coe Tech" --yes   # cria sem perguntar
 ```
 
 **O padrão é seco:** sem `--fill` ou `--save`, nada abre o navegador e nada é
@@ -31,6 +36,11 @@ Duas regras que o programa aplica sozinho:
   apontar um fim de semana ou feriado que você realmente trabalhou.
 - **Preencher não é gravar.** `--fill` digita e confere; se algum campo não
   aceitar o valor, ele para e não grava nada.
+- **A OSI é escolhida, nunca adivinhada.** `--osi` aceita o rótulo que o site
+  mostra ou qualquer trecho que case com uma linha só da lista daquele dia
+  (o número puro continua servindo); se você não passar nada, ele usa a
+  última OSI que gravou, e recusa se não houver nenhuma. Na tela interativa,
+  Tab/Espaço/Enter em cima da linha da OSI abrem a lista inteira.
 
 Códigos de saída: `0` feito, `1` erro, `2` nada a fazer (um feriado pulado não
 é falha).
@@ -92,16 +102,36 @@ src/
       base.py                      # BrowserController (ABC): open/login/fill_appointment/close
       cdp.py                       # cliente CDP: clique de mouse real, digitação tecla a tecla
       browsers.py                  # acha/sobe Edge -> Chrome, perfil dedicado, lembra qual subiu
-      ssg_controller.py            # o controller real do SSG
-      ssg_selectors.json           # seletores e armadilhas do site (sondados)
+      ssg_screen.py                # SsgScreen: ciclo de vida/sessão comum a toda tela do SSG + erros
+      ssg_list_modal.py            # o widget "Listagem de Itens" que todo botão "?" abre
+      ssg_controller.py            # a tela de apontamento (preencher, conferir, gravar, ler OSIs)
+      ssg_osi_form.py              # a tela de cadastro de OSI
       playwright_controller.py     # stub (descartado: baixa browsers próprios)
       input_controller.py          # stub (framework autoral mouse/teclado, plano B)
+    osi_catalog/
+      entry.py                     # OsiEntry (number/label) + from_label(), que aceita texto livre
+      cache.py                     # load/save do catálogo e do "último usado", em user_data_dir()
+      probe.py                     # refresh_catalog() -- lê a lista pelo "?" da tela de apontamento
+    osi_register/
+      window.py, description.py, effort.py   # peças puras: período aceito, descrição, esforço = 8/dia
+      flow.py                      # o fluxo do formulário: prepare / discover_window / fill / submit
+    tui/
+      state.py, argv_builder.py, render.py   # grade interativa: estado puro, sem prompt_toolkit
+      app.py                       # único arquivo que importa prompt_toolkit
   main.py                          # orquestrador + CLI
+  refresh_osi_list.py              # entry point do refresh-osi-list.exe (só --refresh-osi-list)
+  register_new_osi.py              # entry point do register-new-osi.exe (cadastrar OSI)
   test/{unit,integration,e2e}/
+doc/
+  ROADMAP.md                       # estado de cada etapa e decisões por trás delas
+  sysmap_ssg/                      # conhecimento sobre o site SSG/SysMap (recon, seletores, armadilhas)
+    stack.md, sessao-e-rotas.md, campo-mascarado.md   # não específico de uma tela
+    pages/{login, apontamento, listagem-de-osi, cadastro-de-osi}/   # um markdown (+ selectors.json) por tela
 ```
 
 O que é gravado fica em `%LOCALAPPDATA%\auto-appointment\`: o perfil do
 navegador, o cache de feriados, e o histórico que cresce a cada apontamento
 confirmado (é dele que a Regra 4 depende).
 
-Veja `ROADMAP.md` para o estado de cada etapa e as decisões por trás delas.
+Veja `doc/ROADMAP.md` para o estado de cada etapa e as decisões por trás
+delas, e `doc/sysmap_ssg/` para o que já se sabe sobre o site em si.

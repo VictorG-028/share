@@ -169,6 +169,14 @@ def launch(port: int = DEFAULT_PORT) -> str:
                     f"--user-data-dir={profile_dir()}",
                     "--no-first-run",
                     "--no-default-browser-check",
+                    # Keep the page running when its window is minimised or
+                    # covered. Chromium reports document.visibilityState
+                    # "hidden" then and freezes CSS transitions -- and the
+                    # site's Bootstrap modals never finish opening or closing,
+                    # so "Fechar" looks broken (measured 2026-09-09).
+                    "--disable-backgrounding-occluded-windows",
+                    "--disable-renderer-backgrounding",
+                    "--disable-background-timer-throttling",
                 ],
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,

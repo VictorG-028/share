@@ -1,54 +1,54 @@
 """
 Live extraction of the OSI catalog from the SSG site.
 
-**Not yet implemented.** Probing session findings (2026-08-29), recorded here
-and in ``ssg_selectors.json``'s ``listaOsi`` key so the next attempt doesn't
-repeat the same dead ends:
-
-- ``#/osi/get-list`` ("Pesquisar OSI" in the nav menu) is the real listing
-  route, but the link is buried in a deeply nested, collapsed menu -- it
-  exists in the DOM but has zero size (invisible) until its parent submenus
-  are expanded, which would need driving a long, fragile hover/click chain.
-- The OSI field's "?" button (``.button-show-items``, title "Clique aqui
-  para visualizar os itens associados a este campo") is **not safe** to
-  click blindly: clicking it once produced a bootbox modal reading "Perfeito!
-  Registros alterados com sucesso" (records changed successfully) for the
-  currently-filtered day -- language that contradicts this file's own
-  documented "no modal on save" behavior. A read-only check afterwards
-  (``row_counts``/``read_day``) showed no duplicate rows and unchanged
-  values, so nothing was corrupted, but the button's real effect is
-  unconfirmed and it must not be used for a read-only catalog refresh.
-- The real per-keystroke typeahead search is a plain, genuinely read-only
-  GET: ``/api/<id>/timesheet-recording/get-osi-project-activity-by-term
-  ?current-page=...&term=<term>&userName=<name>&date=<DD/MM/AAAA>``. Two
-  problems remain before this can drive ``refresh_catalog()``:
-  1. It only fires on **real** keystrokes -- confirmed at the CDP
-     ``Network`` domain level that this project's synthetic
-     ``Input.dispatchKeyEvent`` typing (used successfully for the masked
-     time/date fields all week) never triggers it, for reasons not yet
-     understood.
-  2. It depends on a session/token that can expire independently of normal
-     page browsing (`"ReturnCode":"INVALID_TOKEN_4"` was observed from a
-     live, logged-in tab), and a plain reload does not safely refresh it --
-     one reload attempt logged the session out entirely instead.
-
-Resolving this needs a calmer session: work out why synthetic key events
-don't reach this endpoint's listener (unlike the masked-input fields), or
-call it directly with a *validated* fresh token/cookie pair, without
-reloading a page that turns out to drop the session.
+The source is the "?" help button beside the OSI field on the timesheet
+screen: it opens the site's generic "Listagem de Itens" modal, filled by a
+plain read-only GET (confirmed with network capture on 2026-09-04 -- see
+``doc/sysmap_ssg/pages/apontamento/README.md``). The list is day-dependent,
+so the button is clicked on the most recent past day that already has an
+appointment; today is never touched and no row is ever created. Dead ends
+that came before: ``doc/sysmap_ssg/pages/listagem-de-osi/recon.md``.
 """
 
 from __future__ import annotations
 
+from datetime import date, timedelta
+
 from modules.osi_catalog.entry import OsiEntry
 
-
-class OsiProbeNotImplemented(RuntimeError):
-    """The live OSI-list extraction hasn't been solved yet -- see module docstring."""
+#: How far back the screen is filtered, so some past day with an appointment
+#: is on screen to click on.
+LOOKBACK_DAYS = 30
 
 
 def refresh_catalog(*, port: int | None = None) -> list[OsiEntry]:
-    raise OsiProbeNotImplemented(
-        "extracao da lista de OSI ainda nao implementada "
-        "(ver TODO em modules/osi_catalog/probe.py)"
-    )
+    """
+    Read the OSI list from the live site. Never writes anything.
+
+    Raises the browser layer's own errors (``SsgLoginRequired``, ``SsgError``,
+    ``BrowserNotFound``, ``CdpError``) so ``main.refresh_osi_list`` can report
+    them. The listed text itself is never a reason to fail.
+    """
+    # Imported lazily: this module is reached through ``modules.osi_catalog``
+    # by the browser-free TUI, which must not drag in the websocket stack.
+    from modules.browser.browsers import DEFAULT_PORT
+    from modules.browser.ssg_controller import SsgController, SsgError
+
+    today = date.today()
+    controller = SsgController(port=port or DEFAULT_PORT)
+    try:
+        controller.open()
+        controller.filter_range(today - timedelta(days=LOOKBACK_DAYS), today)
+        past_days = [day for day in controller.days_with_appointments() if day < today]
+        if not past_days:
+            raise SsgError(
+                f"Nenhum apontamento nos ultimos {LOOKBACK_DAYS} dias para abrir a lista de OSI."
+            )
+        labels = controller.list_osi_help_items(max(past_days))
+        # Whatever the site listed, verbatim. The text is free -- OSIs the
+        # manager creates for the team come with no ``OSI <n>`` prefix at all
+        # -- and everything the modal offers for a day is punchable that day,
+        # so a row we cannot parse must never abort the capture.
+        return [OsiEntry.from_label(label) for label in labels]
+    finally:
+        controller.close()

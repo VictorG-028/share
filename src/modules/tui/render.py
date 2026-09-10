@@ -17,13 +17,48 @@ RESET = "\033[0m"
 REVERSE = "\033[7m"
 
 _FALLBACK_HINT = "(lista nao capturada -- rode --refresh-osi-list)"
+_KEYS_FORM = (
+    "setas: navegar/mudar valores  Espaco/Tab/Enter na OSI: lista  "
+    "Enter: confirmar  Esc/Ctrl-C: cancelar"
+)
+_KEYS_PICKER = "setas: navegar  Espaco/Enter: escolher  Tab/Esc: voltar sem mudar"
+
+#: How many rows of the list are on screen at once, and how wide a label may
+#: get before it is cut. Both are about a default Windows console, which is
+#: where the .exe actually runs.
+PICKER_ROWS = 12
+LABEL_WIDTH = 110
 
 
 def _focused(text: str, *, is_focused: bool) -> str:
     return f"{REVERSE}{text}{RESET}" if is_focused else text
 
 
+def _ellipsize(text: str, limit: int = LABEL_WIDTH) -> str:
+    return text if len(text) <= limit else text[: limit - 3] + "..."
+
+
+def render_picker(state: "FormState") -> str:
+    """The OSI list, whole, with its own cursor -- the overlay."""
+    entries = state.osi.entries
+    cursor = state.osi.pick_index
+    # Keep the cursor in view without ever scrolling past either end.
+    start = max(0, min(cursor - PICKER_ROWS // 2, len(entries) - PICKER_ROWS))
+    visible = entries[start : start + PICKER_ROWS]
+
+    lines = [f"Escolha a OSI   ({cursor + 1}/{len(entries)})", ""]
+    for offset, entry in enumerate(visible):
+        index = start + offset
+        marker = ">" if index == cursor else " "
+        lines.append(f"{marker} {_focused(_ellipsize(entry.label), is_focused=index == cursor)}")
+    lines += ["", _KEYS_PICKER]
+    return "\n".join(lines)
+
+
 def render_text(state: "FormState") -> str:
+    if state.osi.picking:
+        return render_picker(state)
+
     d = state.date
     on_row0 = state.row == 0
 
@@ -41,11 +76,14 @@ def render_text(state: "FormState") -> str:
         color = {"red": RED, "yellow": YELLOW}.get(status.color, "")
         status_line = f"{color}{status.message}{RESET}"
 
-    osi = state.osi.current()
-    osi_text = _focused(osi.label, is_focused=state.row == 1)
-    osi_line = f"Projeto (OSI): {osi_text}"
-    if state.osi.is_fallback:
-        osi_line += f"\n  {_FALLBACK_HINT}"
+    chosen = state.osi.current()
+    if chosen is None:
+        osi_line = f"Projeto (OSI): {RED}nenhuma{RESET}\n  {_FALLBACK_HINT}"
+    else:
+        osi_text = _focused(_ellipsize(chosen.label), is_focused=state.row == 1)
+        osi_line = f"Projeto (OSI): {osi_text}"
+        if state.osi.is_fallback:
+            osi_line += f"\n  {_FALLBACK_HINT}"
 
     save_choice = "[Y] / N" if state.save else "Y / [N]"
     save_text = _focused(save_choice, is_focused=state.row == 2)
@@ -54,5 +92,5 @@ def render_text(state: "FormState") -> str:
     lines = [date_line]
     if status_line:
         lines.append(status_line)
-    lines += ["", osi_line, "", save_line, "", "setas: navegar/mudar valores  Enter: confirmar  Esc/Ctrl-C: cancelar"]
+    lines += ["", osi_line, "", save_line, "", _KEYS_FORM]
     return "\n".join(lines)

@@ -125,10 +125,14 @@ def run_week(
 
 
 def _describe(appointment: Appointment, osi: str) -> str:
+    # The whole label, not a number: the day's list also carries the OSIs the
+    # manager opened for the team, and "OSI 82695" on the confirmation line
+    # would no longer tell you which project you are about to book.
     return (
         f"  {appointment.day.strftime('%d/%m/%Y')}  "
         f"{appointment.entry_time:%H:%M} / {appointment.lunch_start:%H:%M} / "
-        f"{appointment.lunch_end:%H:%M} / {appointment.exit_time:%H:%M}   OSI {osi}"
+        f"{appointment.lunch_end:%H:%M} / {appointment.exit_time:%H:%M}\n"
+        f"  {osi}"
     )
 
 
@@ -164,12 +168,11 @@ def punch(
     from modules.browser.browsers import DEFAULT_PORT, BrowserNotFound
     from modules.browser.cdp import CdpError
     from modules.browser.ssg_controller import (
-        DEFAULT_OSI_NUMBER,
         SsgController,
         SsgError,
         SsgLoginRequired,
     )
-    from modules.osi_catalog import save_last_used
+    from modules.osi_catalog import load_last_used, save_last_used
 
     if not appointments:
         return EXIT_NOTHING_TO_DO
@@ -180,10 +183,18 @@ def punch(
         )
         return EXIT_ERROR
 
-    controller = SsgController(
-        osi_number=osi or DEFAULT_OSI_NUMBER,
-        port=port or DEFAULT_PORT,
-    )
+    # No built-in default: the OSI list is day-dependent and a constant in the
+    # code goes stale the month it is written. What you punched last is the
+    # only honest guess; with nothing to fall back on, refuse instead.
+    selector = osi or load_last_used()
+    if not selector:
+        print(
+            "Nenhuma OSI escolhida e nenhuma usada antes. "
+            "Rode refresh-osi-list e escolha na tela, ou passe --osi."
+        )
+        return EXIT_ERROR
+
+    controller = SsgController(osi=selector, port=port or DEFAULT_PORT)
     written = 0
     try:
         controller.open()
@@ -193,7 +204,7 @@ def punch(
             print(f"{appointment.day.isoformat()}: preenchido e conferido.")
             if not save:
                 continue
-            if not _confirm(appointment, controller.osi_number, assume_yes=assume_yes):
+            if not _confirm(appointment, controller.osi_selected or selector, assume_yes=assume_yes):
                 print(f"{appointment.day.isoformat()}: nao gravei.")
                 continue
             controller.save_day(appointment)
@@ -201,7 +212,7 @@ def punch(
             # Only a punch that really landed goes into the history, so Rule 4
             # keeps checking against what was actually recorded.
             append_appointment(appointment)
-            save_last_used(controller.osi_number)
+            save_last_used(controller.osi_selected or selector)
             print(f"{appointment.day.isoformat()}: GRAVADO e confirmado no servidor.")
     except SsgLoginRequired as error:
         print(f"Login necessario: {error}")
@@ -262,7 +273,14 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="nao perguntar antes de gravar",
     )
-    parser.add_argument("--osi", help="numero da OSI a apontar")
+    parser.add_argument(
+        "--osi",
+        help=(
+            "qual OSI apontar: o rotulo como o site mostra, ou qualquer trecho "
+            "que case com uma linha so (o numero, ex. 82695, ainda serve). "
+            "Sem isso, usa a ultima que voce gravou"
+        ),
+    )
     parser.add_argument("--port", type=int, help="porta do CDP (padrao: 9222)")
     parser.add_argument(
         "--refresh-osi-list",
@@ -270,6 +288,15 @@ def build_parser() -> argparse.ArgumentParser:
         help=(
             "abre o SSG, LE (nao grava) a lista de OSI e atualiza o cache "
             "local; ignora as outras flags"
+        ),
+    )
+    parser.add_argument(
+        "--register-new-osi",
+        action="store_true",
+        help=(
+            "cadastra uma OSI nova, perguntando projeto e atividade e "
+            "confirmando antes de gravar; ignora as outras flags "
+            "(o comando register-new-osi tem as opcoes nao interativas)"
         ),
     )
     return parser
@@ -309,6 +336,10 @@ def cli(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.refresh_osi_list:
         return refresh_osi_list(port=args.port)
+    if args.register_new_osi:
+        from register_new_osi import run as register_new_osi
+
+        return register_new_osi(port=args.port)
     target_day = args.day or (date.today() - timedelta(days=1))
     strategy_type = StrategyType(args.strategy)
 

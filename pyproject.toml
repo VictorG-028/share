@@ -11,6 +11,8 @@ dependencies = [
 
 [project.scripts]
 auto-appointment = "main:cli"
+refresh-osi-list = "refresh_osi_list:cli"
+register-new-osi = "register_new_osi:cli"
 
 [dependency-groups]
 dev = [

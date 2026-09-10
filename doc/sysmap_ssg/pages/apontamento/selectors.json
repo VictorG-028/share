@@ -1,0 +1,72 @@
+{
+  "_comment": "Seletores reais do SSG, sondados e VALIDADOS com um save real em 2026-08-27 (dia 26/08 apontado com sucesso via CDP). NENHUM campo tem id ou name -- tudo e ancorado por classe.",
+  "entryUrl": "https://ssg.sysmap.com.br/index.html#/access-entry/get-list",
+  "filtro": {
+    "dataInicial": ".start-date",
+    "dataFinal": ".end-date",
+    "profissional": ".user-name.dynamic-autocomplete",
+    "formatoData": "DD/MM/AAAA (campo mascarado: digitar so os 8 digitos)",
+    "botaoFiltrar": "botao cujo textContent.trim() === 'Filtrar' e que esteja visivel"
+  },
+  "dia": {
+    "container": "div.panel.panel-default.access-entry-day",
+    "comoAchar": "entre os .access-entry-day, o cujo textContent contem 'DD/MM/AAAA'",
+    "expandir": "button.button-toggle-day -- alterna .day-body entre display block e none",
+    "seloSemRegistro": "IGNORAR. 'Sem registro' aparece em TODO dia, inclusive nos ja salvos. Nao e sinal de nada."
+  },
+  "registroES": {
+    "linhaReal": "tr.access-record-row:not(.hide)",
+    "template": "tr.access-record-row-template.hide -- NAO preencher, e o molde clonado",
+    "entrada": ".input-clock-in",
+    "saida": ".input-clock-out",
+    "abonoFaltas": ".input-absence-allowance",
+    "observacao": ".input-access-note",
+    "adicionarLinha": "button.button-add-access-row",
+    "removerLinha": "a.button-remove-access-row",
+    "layout": "DUAS linhas por dia: linha 1 = entrada + inicio-almoco, linha 2 = fim-almoco + saida"
+  },
+  "apontamento": {
+    "linhaReal": "tr.appointment-row:not(.hide)",
+    "horas": ".input-appointed-hours",
+    "osiProjetoAtividade": ".input-project-activity.dynamic-autocomplete",
+    "observacao": ".input-appointment-note -- deixar VAZIA. O SITE grava ';' sozinho quando a observacao vai vazia; dias apontados a mao leem ';' do mesmo jeito. Tratar '' e ';' como 'sem observacao'.",
+    "adicionarLinha": "button.button-add-appointment-row",
+    "formatoOsi": "TEXTO LIVRE -- nao ha formato garantido. OSI propria: 'OSI <numero> | <Projeto> | <Atividade> - <id>'. OSI que o gestor abre para o time inteiro: SEM o prefixo 'OSI <n>', no formato '<Projeto> | <Pessoa> - <id>'. Em 04/09/2026 a lista do dia trouxe 16 linhas, 3 com numero e 13 sem",
+    "exemplo": "OSI 82695 | Faturamento Assistencial SECONCI | Carga base historica - 417293",
+    "exemploSemNumero": "coe tech - setembro - 2026 | Walber Hugo da Silva - 427465",
+    "comoPreencher": "ADOTADO em 2026-09-09: abrir o '?' (.button-show-items) do proprio dia, casar o rotulo (exato, depois substring unica) e clicar no button.button-select da linha -- o site escreve a composta inteira. Serve para qualquer linha, com ou sem numero, e a linha escolhida e conhecida. ALTERNATIVA (nao usada): digitar so o numero, esperar ul.typeahead.dropdown-menu e clicar no li visivel -- so funciona com numero e aceita qualquer sugestao que aparecer",
+    "comoConferir": "comparar o valor do campo com a string lida de volta logo apos selecionar, igualdade exata com espacos colapsados -- prefixo 'OSI <n>' nao basta e nao existe em toda linha"
+  },
+  "salvar": {
+    "botao": "botao cujo textContent casa 'Salvar dias alterados' e que esteja visivel",
+    "escopo": "global da tela -- salva TODOS os dias alterados de uma vez",
+    "confirmacao": "nenhuma. Nao abre modal bootbox e NAO exibe toast de sucesso.",
+    "sinalDeSucesso": "re-filtrar o periodo e contar tr.access-record-row:not(.hide) no dia alvo. > 0 com os valores esperados = salvou. Validado com reload ignoreCache."
+  },
+  "armadilhas": {
+    "botaoInvisivel": "Ao adicionar linhas, o botao .button-add-access-row do estado vazio some e outro assume. SEMPRE mirar o visivel (getClientRects().length > 0), nunca o primeiro do querySelectorAll.",
+    "cliqueProgramatico": "el.click() nao aciona o .button-toggle-day. Usar Input.dispatchMouseEvent real.",
+    "diaVazio": "Um dia sem apontamento vem recolhido e SEM linhas -- so os templates .hide. E preciso expandir e clicar em adicionar linha 2x (E/S) e 1x (apontamento).",
+    "campoMascarado": "Ver doc/sysmap_ssg/campo-mascarado.md. Digitar direto sem limpar produz lixo: '0903' virou '90:30'.",
+    "observacaoPontoEVirgula": "Nao confundir: apos salvar, a observacao vazia volta do servidor como ';'. Nao foi ninguem que digitou -- e o default do site.",
+    "botaoAjudaOsi": "RESOLVIDO em 2026-09-04: o botao '?' (.button-show-items) ao lado do campo de OSI E somente-leitura. Captura de rede via CDP no clique mostrou um unico GET (get-osi-project-activity-by-term, term vazio) e read_day()/row_counts() identicos antes e depois. O modal bootbox 'Perfeito! Registros alterados com sucesso' visto em 2026-08-29 NAO reapareceu -- com document.elementFromPoint confirmando que o clique acertou o botao -- e fica registrado como clique em elemento errado naquela sondagem. Ver ajudaOsi."
+  },
+  "ajudaOsi": {
+    "botao": "tr.appointment-row:not(.hide) .button-show-items -- um por linha de apontamento; o dia precisa estar expandido (tamanho zero se recolhido). Nunca criar linha so para ter o botao: usar um dia que ja tem apontamento",
+    "requestDisparado": "GET https://ssg.sysmap.com.br/api/<id>/timesheet-recording/get-osi-project-activity-by-term?current-page=%23%2Faccess-entry%2Fget-list&term=&userName=<nome>&date=<DD/MM/AAAA do painel> -- o mesmo endpoint do typeahead, com term vazio; nenhuma escrita",
+    "modal": ".modal.modal-list-items (visivel: getClientRects().length > 0) -- o widget generico 'Listagem de Itens' do site, o mesmo do '?' de Status em #/osi/get-list",
+    "busca": "input.text-box-search dentro do modal (a automacao nao usa)",
+    "linhas": "table.table-items-autocomplete tbody tr.dynamic td.col-item -- uma por OSI, texto no formatoOsi; tr.template (display:none) e o molde, ignorar. As linhas chegam por AJAX DEPOIS de o modal aparecer: esperar tr.dynamic > 0 (~8s para aceitar lista vazia)",
+    "selecionar": "button.button-select (fa-share) em cada linha preenche o campo de OSI. E escrita de formulario (nao no servidor): o refresh do catalogo NAO clica nele, o preenchimento de um dia (SsgController._fill_osi) clica",
+    "abaCongelada": "se a janela do navegador estiver minimizada ou coberta, document.visibilityState fica 'hidden', as transicoes CSS param e o modal do Bootstrap nunca termina de abrir ou fechar (fica display:block sem a classe 'in'); o 'Fechar' parece morto mesmo com o clique acertando o botao. browsers.launch sobe o navegador com --disable-backgrounding-occluded-windows e afins para evitar isso -- ver ../../stack.md",
+    "fechar": "botao com textContent 'Fechar' (ha tambem o X 'Close' no cabecalho). Fecha limpo: nenhum overlay sobra",
+    "dependeDoDia": "a lista vem filtrada pelo date= do painel clicado: em 03/09/2026 vieram so 83270 e 83174 (ambas Liberado); 82695 (termino estimado 30/08) nao entrou, nem 83336 (Aprovado Colaborador). Clicar no apontamento passado mais recente da o catalogo 'de agora'",
+    "implementacao": "SsgController.list_osi_help_items(day) + modules/osi_catalog/probe.py (filtra os ultimos 30 dias, escolhe o dia passado mais recente com apontamento, nunca hoje)"
+  },
+  "implementacao": {
+    "controller": "src/modules/browser/ssg_controller.py -- copia executavel destes seletores",
+    "navegador": "src/modules/browser/browsers.py -- Edge, fallback Chrome, perfil dedicado, lembra qual subiu",
+    "cdp": "src/modules/browser/cdp.py -- clique de mouse real e digitacao tecla a tecla",
+    "regra": "fill_appointment preenche e confere mas NAO salva; save_day e chamada separada"
+  }
+}

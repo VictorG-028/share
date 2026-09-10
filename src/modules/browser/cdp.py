@@ -3,7 +3,7 @@ Minimal Chrome DevTools Protocol client.
 
 Only what driving a form needs: run JS, click with a REAL mouse event, and type
 key by key. Both of those matter on the target site and were proven necessary
-by probing it (see ``ssg_selectors.json``):
+by probing it (see ``doc/sysmap_ssg/pages/apontamento/`` for the recon that found this):
 
 * ``el.click()`` does not fire its day-toggle handler -- only a real
   ``Input.dispatchMouseEvent`` does;
@@ -226,6 +226,18 @@ class CdpPage:
             "Input.dispatchKeyEvent",
             {"type": "keyUp", "key": char, "windowsVirtualKeyCode": virtual_key},
         )
+
+    def type_text(self, locator_js: str, text: str) -> str:
+        """Replace a plain field's content by typing ``text``; returns the value."""
+        self.click(locator_js)
+        time.sleep(_FOCUS_SETTLE_SECONDS)
+        self.evaluate("(() => { const e = " + locator_js + "; e.focus(); e.select(); return 1; })()")
+        self._key(*_DELETE)
+        time.sleep(_CLEAR_KEY_SECONDS)
+        for char in text:
+            self._char(char)
+            time.sleep(0.03)
+        return self.evaluate("(() => { const e = " + locator_js + "; return e ? e.value : null; })()")
 
     def type_masked(self, locator_js: str, digits: str) -> str:
         """
