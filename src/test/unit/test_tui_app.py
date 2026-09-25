@@ -55,10 +55,14 @@ def test_enter_from_a_valid_past_date_submits():
     assert result == ["--day", "29/05/2026", "--osi", "OSI 82695", "--save", "--yes"]
 
 
-def test_enter_on_todays_default_is_blocked_then_escape_cancels():
-    state = _state(date.today())
-    result = _run(state, ENTER + ESCAPE)
-    assert result is None
+def test_enter_on_todays_default_submits_when_forced():
+    today = date.today()
+    state = _state(today, force=True)
+    result = _run(state, ENTER)
+    assert result == [
+        "--day", today.strftime("%d/%m/%Y"),
+        "--force", "--osi", "OSI 82695", "--save", "--yes",
+    ]
 
 
 def test_left_from_osi_never_lands_on_force():

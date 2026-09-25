@@ -4,7 +4,13 @@ from datetime import date
 import pytest
 
 import main
-from modules.tui.state import DateCursor, FormState, OsiSpinner, load_osi_spinner
+from modules.tui.state import (
+    TODAY_HEADS_UP,
+    DateCursor,
+    FormState,
+    OsiSpinner,
+    load_osi_spinner,
+)
 from modules.osi_catalog.entry import OsiEntry
 
 SATURDAY = date(2026, 5, 30)
@@ -85,11 +91,12 @@ def test_toggle_force_flips():
 # ------------------------------------------------------------------ status
 
 
-def test_status_today_is_blocked_red_even_with_force():
+def test_status_today_is_not_blocked_but_carries_a_heads_up():
     cursor = _cursor(date.today(), force=True)
     status = cursor.status()
-    assert status.blocked is True
-    assert status.color == "red"
+    assert status.blocked is False
+    assert status.color is None
+    assert status.message == TODAY_HEADS_UP
 
 
 def test_status_future_is_blocked_red_even_with_force():
@@ -290,3 +297,79 @@ def test_submitting_is_blocked_without_any_osi():
     state.date = DateCursor(day=29, month=5, year=2026)
     assert state.block_reason() is not None
     assert state.try_submit() is None
+
+
+# ------------------------------------- only punchable OSIs are offered
+
+
+def _mixed_spinner():
+    """A catalog like the real one: usable, expired, cancelled, and statusless."""
+    from modules.osi_catalog.entry import OsiEntry
+
+    return OsiSpinner(
+        entries=[],
+        known=[
+            OsiEntry.from_record({
+                "Id": "83385", "ProjectName": "P", "ActivityName": "A", "ActivityId": "1",
+                "StatusName": "Liberado",
+                "OsiActivityStartDateStr": "08/09/2026", "OsiActivityEndDateStr": "11/09/2026",
+            }),
+            OsiEntry.from_record({
+                "Id": "82695", "ProjectName": "P", "ActivityName": "A", "ActivityId": "2",
+                "StatusName": "Liberado",
+                "OsiActivityStartDateStr": "17/08/2026", "OsiActivityEndDateStr": "30/08/2026",
+            }),
+            OsiEntry.from_record({
+                "Id": "83172", "ProjectName": "P", "ActivityName": "A", "ActivityId": "3",
+                "StatusName": "Cancelado",
+                "OsiActivityStartDateStr": "31/08/2026", "OsiActivityEndDateStr": "30/09/2026",
+            }),
+            OsiEntry.from_label("coe tech - setembro - 2026 | Fulano - 4"),
+        ],
+    )
+
+
+def test_the_spinner_offers_only_what_the_chosen_day_accepts():
+    spinner = _mixed_spinner()
+    spinner.refilter(date(2026, 9, 10))
+    # The expired 82695 and the cancelled 83172 are kept in the catalog but
+    # never offered; the team OSI has no status and is always offered.
+    assert [e.label.split(" |")[0] for e in spinner.entries] == [
+        "OSI 83385",
+        "coe tech - setembro - 2026",  # no status: the site offered it, so it counts
+    ]
+    assert len(spinner.known) == 4
+
+
+def test_moving_the_day_changes_which_osis_are_offered():
+    spinner = _mixed_spinner()
+    spinner.refilter(date(2026, 8, 20))  # inside 82695's window, outside 83385's
+    assert [e.label.split(" |")[0] for e in spinner.entries] == [
+        "OSI 82695",
+        "coe tech - setembro - 2026",
+    ]
+
+
+def test_the_current_choice_survives_a_day_change_when_it_still_applies():
+    spinner = _mixed_spinner()
+    spinner.refilter(date(2026, 9, 10))
+    spinner.index = 1  # the team OSI
+    chosen = spinner.current().label
+    spinner.refilter(date(2026, 9, 11))
+    assert spinner.current().label == chosen
+
+
+def test_a_day_with_no_valid_osi_says_so_instead_of_blaming_the_cache():
+    # Only dated OSIs here: an entry with no status is punchable on any day,
+    # so it would never leave the list empty.
+    spinner = _mixed_spinner()
+    spinner.known = [e for e in spinner.known if e.status is not None]
+    state = FormState(
+        date=DateCursor(day=1, month=7, year=2026),
+        osi=spinner,
+    )
+    state.osi.refilter(state.date.as_date())
+    assert state.osi.current() is None
+    reason = state.block_reason()
+    assert "nenhuma OSI vale para este dia" in reason
+    assert "refresh-osi-list" not in reason

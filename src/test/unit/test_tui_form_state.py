@@ -87,7 +87,8 @@ def test_bump_value_dispatches_to_the_focused_field():
 
 
 def test_try_submit_returns_none_when_blocked_regardless_of_focus():
-    state = _state(date.today())  # today is always blocked
+    future = date.today() + timedelta(days=1)
+    state = _state(future)  # the future is always blocked
     for row in range(len(ROWS)):
         state.row = row
         assert state.try_submit() is None

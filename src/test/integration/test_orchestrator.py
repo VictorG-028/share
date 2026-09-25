@@ -39,13 +39,16 @@ def test_punches_ordinary_weekday(monkeypatch):
     assert appt.day == FRIDAY
 
 
-# SSG only accepts days already in the past -- not the current day, and
-# certainly not the future. The rule is hard: force does not lift it.
+# SSG cannot accept a timestamp that has not happened yet, so the future is
+# hard-blocked and force does not lift it. Today is not special-cased here
+# -- whether the SSG actually accepts it is left for the SSG to decide.
 
 
-def test_refuses_today_even_with_force(monkeypatch):
+def test_punches_today_when_forced(monkeypatch):
     monkeypatch.setattr(main, "is_holiday", lambda d, **kw: False)
-    assert main.run(date.today(), force=True) is None
+    appt = main.run(date.today(), force=True)
+    assert appt is not None
+    assert appt.day == date.today()
 
 
 def test_refuses_the_future_even_with_force(monkeypatch):

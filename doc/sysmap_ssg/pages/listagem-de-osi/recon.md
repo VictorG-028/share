@@ -3,7 +3,27 @@
 Internamente chamada de **"tela de resposta lenta e inconsistente"** -- não
 "bugada": ela funciona, só que com tempo de resposta alto e variável, ao
 contrário do resto do site (ex.: o filtro de `access-entry` documentado em
-`../apontamento/README.md` resolve em ~8s de forma constante).
+`../apontamento/README.md` resolve em ~1,3s de forma constante).
+
+> **Atualização de 2026-09-10 — esta tela deixou de ser o caminho.**
+> O "Filtrar" desta tela envia um único `POST osi/get-by-parameters` com
+> `{"UserName": "<nome>"}`, e chamar esse endpoint direto devolve a mesma
+> informação em **0,645s** contra **60s+** dirigindo a tela. O contrato está
+> em `../../api.md`; a tela continua documentada aqui porque é o **fallback**
+> (`src/modules/browser/ssg_osi_list.py`).
+>
+> Duas descobertas de 2026-09-10 que só aparecem ao dirigir a tela:
+>
+> - **Ela cospe um alerta ao abrir**: *"Erro! Falha ao processar o serviço
+>   remoto `https://services.sysmap.com.br/api/v1/users?userId=undefined`."*
+>   É provavelmente a origem da fama de "bugada". Precisa ser fechado, senão o
+>   backdrop engole todo clique seguinte.
+> - **O DataTables recicla os `<tr>`**: depois de filtrar, as linhas antigas
+>   são reaproveitadas em vez de recriadas, então o truque do marcador que
+>   funciona na tela de apontamento **não funciona aqui**. O sinal confiável de
+>   "terminou" é o contador *"Mostrar X até Y de **Z** registros"*.
+> - O "?" de Profissional trouxe **exatamente uma opção** (o próprio usuário),
+>   como esperado; selecioná-la preenche o campo.
 
 ## O que já se sabia (sondagem de 2026-08-29)
 

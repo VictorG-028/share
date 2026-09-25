@@ -13,6 +13,7 @@ import pytest
 from models.appointment import Appointment
 from modules.browser.ssg_controller import (
     FieldMismatch,
+    SsgAlert,
     SsgController,
     SsgError,
     date_digits,
@@ -151,11 +152,6 @@ def test_verify_rejects_a_day_that_is_not_on_screen():
 def test_using_the_controller_before_open_is_an_error():
     with pytest.raises(SsgError):
         SsgController().page
-
-
-def test_days_with_appointments_parses_brazilian_dates_oldest_first():
-    controller = _controller(["03/09/2026", "26/08/2026"])
-    assert controller.days_with_appointments() == [date(2026, 8, 26), date(2026, 9, 3)]
 
 
 # ------------------------------------------------------------------ osi list
@@ -307,3 +303,193 @@ def test_fill_osi_refuses_when_the_field_stays_empty(no_sleep):
     controller = _pick_controller("83270", fills=False)
     with pytest.raises(FieldMismatch):
         controller._fill_osi(DAY)
+
+
+# --------------------------------------------------------------- the filter
+
+
+class _FilterPage:
+    """
+    Enough page to exercise filter_range: masked fields that can misbehave, an
+    alert that can be present before and/or after the click, and panels that
+    only count as fresh once the click has happened.
+    """
+
+    def __init__(self, *, typed=None, alert_before=None, alert_after=None, refreshes=True,
+                 prefilled=None, covered=None, hung_requests=0):
+        self.typed = typed  # what the masked field ends up holding, or None for "as asked"
+        self.alert_before = alert_before
+        self.alert_after = alert_after
+        self.refreshes = refreshes
+        self.prefilled = prefilled  # what the date fields already show
+        self.covered = covered  # what elementFromPoint reports on top, if any
+        self.hung_requests = hung_requests  # jQuery.active, i.e. calls never answered
+        self.hidden_loading = False
+        self.clicked: list[str] = []
+        self.typed_fields: list[str] = []
+        self.filtered = False
+        self.marked = False
+
+    # -- what the controller reads
+
+    def _alert(self):
+        return self.alert_after if self.filtered else self.alert_before
+
+    def evaluate(self, expression: str):
+        if ".bootbox" in expression:
+            return self._alert()
+        if "data-aa-stale" in expression and "forEach" in expression:
+            self.marked = True
+            return 1
+        if "access-entry-day:not([data-aa-stale])" in expression:
+            # An alert means the site refused: no fresh panel is ever drawn.
+            return self.filtered and self.refreshes and self.alert_after is None
+        if "location.href" in expression:
+            return "https://ssg.sysmap.com.br/index.html#/access-entry/get-list"
+        if "input[type=password]" in expression:
+            return False
+        if "jQuery.active" in expression:
+            return self.hung_requests
+        if "hideLoading" in expression:
+            self.hidden_loading = True
+            self.covered = None
+            return 1
+        if ".start-date" in expression or ".end-date" in expression:
+            return self.prefilled
+        return False
+
+    def blocker(self, locator: str):
+        # Nothing covers the screen in these tests; the stuck-overlay case has
+        # its own coverage below.
+        return self.covered
+
+    def type_masked(self, locator: str, digits: str) -> str:
+        self.typed_fields.append(locator)
+        if self.typed is not None:
+            return self.typed
+        return f"{digits[:2]}/{digits[2:4]}/{digits[4:]}"
+
+    def click(self, locator: str) -> None:
+        self.clicked.append(locator)
+        if ".bootbox" in locator:  # the alert's own OK button
+            if self.filtered:
+                self.alert_after = None
+            else:
+                self.alert_before = None
+            return
+        if "button-filter" in locator or "Filtrar" in locator:
+            if self._alert() is None:  # an alert's backdrop swallows the click
+                self.filtered = True
+
+    def poll_until(self, expression, *, timeout_seconds=20, poll_seconds=0.1, on_tick=None):
+        for _ in range(3):
+            value = self.evaluate(expression)
+            if value:
+                return value
+            if on_tick is not None:
+                on_tick()
+        return None
+
+
+def _filter_controller(**kwargs):
+    controller = SsgController()
+    controller._page = _FilterPage(**kwargs)
+    return controller
+
+
+def test_filter_range_marks_the_old_panels_before_clicking():
+    controller = _filter_controller()
+    controller.filter_range(DAY, DAY)
+    # Without the marker, the panel the PREVIOUS filter drew for the same day
+    # passes for a fresh result -- which is how a filter that never happened
+    # went unnoticed until 2026-09-10.
+    assert controller.page.marked
+    assert any("button-filter" in c or "Filtrar" in c for c in controller.page.clicked)
+
+
+def test_filter_range_refuses_a_date_the_masked_field_mangled():
+    # The real failure: typing 31072026 left "31/07/261" in the field, and the
+    # site then refused the whole filter.
+    controller = _filter_controller(typed="31/07/261")
+    with pytest.raises(FieldMismatch):
+        controller.filter_range(DAY, DAY)
+    assert not controller.page.clicked  # never even tried to filter
+
+
+def test_filter_range_closes_an_alert_left_over_from_a_previous_run(capsys):
+    # It covers the whole screen: leaving it up makes every later click land on
+    # its backdrop, so the tool would be unusable until a human clicked OK.
+    controller = _filter_controller(alert_before="Aviso! Algo de antes.OK")
+    controller.filter_range(DAY, DAY)
+    assert "de uma execucao anterior" in capsys.readouterr().out
+
+
+def test_filter_range_fails_when_the_site_refuses_the_filter():
+    controller = _filter_controller(
+        alert_after="Aviso! O campo Periodo e de preenchimento obrigatorio.OK"
+    )
+    with pytest.raises(SsgAlert) as raised:
+        controller.filter_range(DAY, DAY)
+    # The site's own words, not a generic timeout.
+    assert "Periodo" in str(raised.value)
+
+
+def test_filter_range_fails_when_no_fresh_panel_ever_arrives():
+    controller = _filter_controller(refreshes=False)
+    with pytest.raises(SsgError):
+        controller.filter_range(DAY, DAY)
+
+
+# ------------------------------------------------------------ panel reading
+
+
+def test_days_on_screen_is_handed_over_raw():
+    # The controller reads; day_choice judges. That split is what lets the
+    # holiday rule be tested without a browser.
+    class _Panels:
+        def evaluate_json(self, expression):  # noqa: ARG002
+            return [{"stamp": "10/09/2026", "heading": "Sem registro 10/09/2026 QUINTA-FEIRA", "appointments": 0}]
+
+    controller = SsgController()
+    controller._page = _Panels()
+    assert controller.days_on_screen() == [
+        {"stamp": "10/09/2026", "heading": "Sem registro 10/09/2026 QUINTA-FEIRA", "appointments": 0}
+    ]
+
+
+def test_filter_range_does_not_retype_a_date_that_is_already_right():
+    # Typing a masked date costs ~1.7s each and cannot be rushed; filtering the
+    # same range twice should not pay that twice.
+    controller = _filter_controller(prefilled=DAY.strftime("%d/%m/%Y"))
+    controller.filter_range(DAY, DAY)
+    assert controller.page.typed_fields == []
+    assert controller.page.filtered  # it still actually filters
+
+
+def test_filter_range_types_when_the_field_shows_something_else():
+    controller = _filter_controller(prefilled="01/01/2020")
+    controller.filter_range(DAY, DAY)
+    assert len(controller.page.typed_fields) == 2
+
+
+def test_filter_range_lifts_a_stuck_loading_veil_before_clicking(capsys):
+    # The site's own showLoading veil, left up by a request that never came
+    # back: a full-screen div with no class, at z-index 10000, that silently
+    # eats every click. Found live on 2026-09-11.
+    controller = _filter_controller(covered="DIV. [position: fixed; z-index: 10000]")
+    controller.filter_range(DAY, DAY)
+    assert controller.page.hidden_loading
+    assert "carregando" in capsys.readouterr().out
+    assert controller.page.filtered
+
+
+def test_a_tab_with_hung_requests_is_named_as_the_cause():
+    # A tab that reached jQuery.active > 0 and stayed there stops firing any
+    # request at all, and a reload does not cure it (measured 2026-09-11).
+    # Without this the symptom reads as "the site is broken".
+    controller = _filter_controller(refreshes=False, hung_requests=6)
+    with pytest.raises(SsgError) as raised:
+        controller.filter_range(DAY, DAY)
+    message = str(raised.value)
+    assert "6 requisicao" in message
+    assert "Feche ESTA aba" in message

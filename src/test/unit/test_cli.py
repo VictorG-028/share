@@ -59,8 +59,11 @@ def test_parse_day_rejects_garbage():
 # -------------------------------------------------------------------- gates
 
 
-def test_today_is_never_eligible_not_even_forced():
-    assert main.skip_reason(TODAY, force=True) is not None
+def test_today_is_eligible_when_forced():
+    assert main.skip_reason(TODAY, force=True) is None
+
+
+def test_future_is_never_eligible_not_even_forced():
     assert main.skip_reason(TOMORROW, force=True) is not None
 
 
@@ -171,10 +174,11 @@ def test_week_keeps_monday_to_friday_of_a_past_week():
     assert [a.day.weekday() for a in week] == [0, 1, 2, 3, 4]
 
 
-def test_week_drops_days_not_yet_past():
-    # The current week always has days that have not happened yet.
+def test_week_drops_days_after_today():
+    # The current week always has days later than today that have not
+    # happened yet -- those are dropped. Today itself is no longer dropped.
     for appointment in main.run_week(TODAY, StrategyType.STATIC):
-        assert appointment.day < TODAY
+        assert appointment.day <= TODAY
 
 
 def test_week_goes_through_the_strategy_week_helper(monkeypatch):
@@ -234,3 +238,47 @@ def test_punch_refuses_when_there_is_no_osi_to_use(monkeypatch, capsys):
 def test_the_confirmation_shows_the_whole_label_not_just_a_number():
     label = "coe tech - setembro - 2026 | Walber Hugo da Silva - 427465"
     assert label in main._describe(_appointment(), label)
+
+
+# ------------------------------------------------------- refresh the catalog
+
+
+def test_both_entry_points_share_the_same_refresh_options():
+    import refresh_osi_list as dedicated
+
+    for parser in (main.build_parser(), dedicated.build_parser()):
+        args = parser.parse_args(
+            ["--fonte", "ambas", "--incluir-feriado", "--incluir-fim-de-semana"]
+        )
+        assert (args.fonte, args.incluir_feriado, args.incluir_fim_de_semana) == (
+            "ambas",
+            True,
+            True,
+        )
+
+
+def test_refresh_defaults_to_the_fast_source_and_workdays_only():
+    args = main.build_parser().parse_args(["--refresh-osi-list"])
+    assert args.fonte == "apontamento"
+    assert not args.incluir_feriado and not args.incluir_fim_de_semana
+
+
+def test_refresh_passes_the_options_through_and_ignores_the_punching_flags(monkeypatch):
+    seen = {}
+
+    def _fake(**kwargs):
+        seen.update(kwargs)
+        return main.EXIT_OK
+
+    monkeypatch.setattr(main, "refresh_osi_list", lambda **kw: _fake(**kw))
+    assert main.cli(["--refresh-osi-list", "--fonte", "listagem", "--save", "--week"]) == main.EXIT_OK
+    assert seen["source"] == "listagem"
+    assert seen["include_holidays"] is False
+    # --save and --week belong to punching and must not leak into a read-only
+    # action; the refresh call takes no such argument at all.
+    assert set(seen) == {"port", "source", "include_holidays", "include_weekends"}
+
+
+def test_an_unknown_source_is_refused_by_the_parser():
+    with pytest.raises(SystemExit):
+        main.build_parser().parse_args(["--refresh-osi-list", "--fonte", "inventada"])

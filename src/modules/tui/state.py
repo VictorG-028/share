@@ -29,6 +29,12 @@ class DateStatus:
     message: str
 
 
+#: Not a prediction of the SSG's exact rule (which field, which margin) --
+#: just a heads-up. Whether "today" is actually accepted is for the SSG
+#: itself to decide when punch() tries, same as any other day.
+TODAY_HEADS_UP = "hoje: o SSG pode recusar se o horario apontado ainda nao tiver passado"
+
+
 def _compute_status(day: int, month: int, year: int, force: bool) -> DateStatus:
     # Lazy import: avoids modules/ depending on main.py at import time, same
     # discipline main.py's own punch()/refresh_osi_list() already use for the
@@ -38,12 +44,15 @@ def _compute_status(day: int, month: int, year: int, force: bool) -> DateStatus:
 
     target = date(year, month, day)
     reason = skip_reason(target, force=force)
-    if target >= date.today():
+    if target > date.today():
         # The unconditional rule: force never lifts this one.
         return DateStatus(blocked=True, color="red", message=reason or "")
-    if reason is None:
-        return DateStatus(blocked=False, color=None, message="")
-    return DateStatus(blocked=True, color="yellow", message=reason)
+    if reason is not None:
+        return DateStatus(blocked=True, color="yellow", message=reason)
+    if target == date.today():
+        # Not blocked -- see TODAY_HEADS_UP above.
+        return DateStatus(blocked=False, color=None, message=TODAY_HEADS_UP)
+    return DateStatus(blocked=False, color=None, message="")
 
 
 @dataclass
@@ -118,6 +127,36 @@ class OsiSpinner:
     is_fallback: bool = False
     picking: bool = False
     pick_index: int = 0
+    #: Everything the catalog holds, punchable on the chosen day or not.
+    #: ``entries`` is the view of it for the day the form is on.
+    known: list[OsiEntry] = field(default_factory=list)
+
+    def __post_init__(self) -> None:
+        if not self.known:
+            self.known = list(self.entries)
+
+    def refilter(self, day: date) -> None:
+        """
+        Narrow ``entries`` to what can actually be booked on ``day``.
+
+        The catalog deliberately keeps the OSIs that cannot be punched --
+        cancelled, finished, or simply past their window -- because knowing
+        they exist and why they are unusable is worth having. Offering them
+        here is a different matter: the site would refuse them, and on a
+        timekeeping system the wrong pick is worse than a shorter list. The
+        current choice is kept if it survives the filter.
+        """
+        from modules.osi_catalog import punchable
+
+        chosen = self.current()
+        self.entries = punchable(self.known, day)
+        self.picking = False
+        self.index = 0
+        if chosen is not None:
+            self.index = next(
+                (i for i, entry in enumerate(self.entries) if entry.label == chosen.label),
+                0,
+            )
 
     def current(self) -> OsiEntry | None:
         if not self.entries:
@@ -198,10 +237,12 @@ class FormState:
     @classmethod
     def initial(cls) -> "FormState":
         today = date.today()
-        return cls(
+        state = cls(
             date=DateCursor(day=today.day, month=today.month, year=today.year),
             osi=load_osi_spinner(),
         )
+        state.osi.refilter(state.date.as_date())
+        return state
 
     def focus_name(self) -> str:
         return ROWS[self.row][self.field]
@@ -227,12 +268,16 @@ class FormState:
             self.osi.move_pick(-delta)
             return
         name = self.focus_name()
-        if name == "day":
-            self.date.bump_day(delta)
-        elif name == "month":
-            self.date.bump_month(delta)
-        elif name == "year":
-            self.date.bump_year(delta)
+        if name in ("day", "month", "year"):
+            if name == "day":
+                self.date.bump_day(delta)
+            elif name == "month":
+                self.date.bump_month(delta)
+            else:
+                self.date.bump_year(delta)
+            # Which OSIs exist depends on the day: one whose window closed is
+            # simply not offered for a day outside it.
+            self.osi.refilter(self.date.as_date())
         elif name == "force":
             self.date.toggle_force()
         elif name == "osi":
@@ -246,6 +291,10 @@ class FormState:
         if status.blocked:
             return status.message
         if self.osi.current() is None:
+            if self.osi.known:
+                # The catalog is not empty -- these OSIs just do not apply to
+                # this day, which is a different problem and a different fix.
+                return "nenhuma OSI vale para este dia (cancelada, finalizada ou fora do periodo)"
             return "sem OSI para apontar -- rode refresh-osi-list"
         return None
 

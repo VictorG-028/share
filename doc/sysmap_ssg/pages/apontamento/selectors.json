@@ -4,15 +4,26 @@
   "filtro": {
     "dataInicial": ".start-date",
     "dataFinal": ".end-date",
-    "profissional": ".user-name.dynamic-autocomplete",
+    "profissional": ".user-name.dynamic-autocomplete -- ja vem preenchido com o usuario logado; e dele que sai o userName das chamadas de API (ver ../../api.md)",
     "formatoData": "DD/MM/AAAA (campo mascarado: digitar so os 8 digitos)",
-    "botaoFiltrar": "botao cujo textContent.trim() === 'Filtrar' e que esteja visivel"
+    "botaoFiltrar": "button.button-filter (classe propria, confirmada em 2026-09-10; a mesma da tela #/osi/get-list). Fallback: botao cujo textContent.trim() === 'Filtrar' e que esteja visivel",
+    "conferirDatas": "OBRIGATORIO reler o campo depois de digitar: em 2026-09-10 a mascara transformou 31072026 em '31/07/261' e o site recusou o filtro inteiro",
+    "provaDeQueFiltrou": "marcar os .access-entry-day existentes (ex.: data-aa-stale) ANTES de clicar e esperar por um painel SEM a marca. Esperar 'o painel do dia X' sozinho casa com o resultado do filtro ANTERIOR, que e identico",
+    "tempoDeResposta": "~1,3s medidos em 2026-09-10 (o codigo dormia 8s fixos)"
+  },
+  "alerta": {
+    "seletor": ".bootbox (visivel: getClientRects().length > 0)",
+    "exemplo": "'Aviso! O campo Periodo e de preenchimento obrigatorio.' apos uma data invalida",
+    "armadilha": "cobre a tela inteira com backdrop: enquanto esta aberto, TODO clique acerta o backdrop e nao o botao -- inclusive numa execucao posterior do programa",
+    "fechar": "o botao visivel dentro dele ('OK', ou o 'x' do cabecalho)",
+    "regra": "alerta que JA estava aberto: fechar (senao nada funciona). Alerta que apareceu DEPOIS da nossa acao: e o site recusando -- virar erro com o texto dele"
   },
   "dia": {
     "container": "div.panel.panel-default.access-entry-day",
     "comoAchar": "entre os .access-entry-day, o cujo textContent contem 'DD/MM/AAAA'",
     "expandir": "button.button-toggle-day -- alterna .day-body entre display block e none",
-    "seloSemRegistro": "IGNORAR. 'Sem registro' aparece em TODO dia, inclusive nos ja salvos. Nao e sinal de nada."
+    "seloSemRegistro": "IGNORAR. 'Sem registro' aparece em TODO dia, inclusive nos ja salvos. Nao e sinal de nada.",
+    "cabecalho": ".panel-heading traz, depois da data, o dia da semana em CAIXA ALTA -- e a palavra FERIADO no lugar dele quando e feriado. Ex.: 'Sem registro 07/09/2026 FERIADO Sobre Aviso'. E a UNICA fonte que conhece feriado de empresa/regional; um calendario nacional nao conhece"
   },
   "registroES": {
     "linhaReal": "tr.access-record-row:not(.hide)",
@@ -60,8 +71,9 @@
     "selecionar": "button.button-select (fa-share) em cada linha preenche o campo de OSI. E escrita de formulario (nao no servidor): o refresh do catalogo NAO clica nele, o preenchimento de um dia (SsgController._fill_osi) clica",
     "abaCongelada": "se a janela do navegador estiver minimizada ou coberta, document.visibilityState fica 'hidden', as transicoes CSS param e o modal do Bootstrap nunca termina de abrir ou fechar (fica display:block sem a classe 'in'); o 'Fechar' parece morto mesmo com o clique acertando o botao. browsers.launch sobe o navegador com --disable-backgrounding-occluded-windows e afins para evitar isso -- ver ../../stack.md",
     "fechar": "botao com textContent 'Fechar' (ha tambem o X 'Close' no cabecalho). Fecha limpo: nenhum overlay sobra",
-    "dependeDoDia": "a lista vem filtrada pelo date= do painel clicado: em 03/09/2026 vieram so 83270 e 83174 (ambas Liberado); 82695 (termino estimado 30/08) nao entrou, nem 83336 (Aprovado Colaborador). Clicar no apontamento passado mais recente da o catalogo 'de agora'",
-    "implementacao": "SsgController.list_osi_help_items(day) + modules/osi_catalog/probe.py (filtra os ultimos 30 dias, escolhe o dia passado mais recente com apontamento, nunca hoje)"
+    "dependeDoDia": "a lista vem filtrada pelo date= do painel clicado: em 03/09/2026 vieram so 83270 e 83174 (ambas Liberado); 82695 (termino estimado 30/08) nao entrou, nem 83336 (Aprovado Colaborador). Medido pelo endpoint em 2026-09-10: 10/09 -> 17 itens, 03/09 -> 16, 27/08 -> 15, 01/07 -> 4",
+    "endpointDireto": "o mesmo GET pode ser feito de dentro da pagina, sem abrir o modal: 0,60s, funciona para QUALQUER dia (inclusive um sem nenhuma linha de apontamento). Ver ../../api.md e src/modules/browser/ssg_api.py",
+    "implementacao": "leitura: modules/browser/ssg_api.osi_labels_for + modules/osi_catalog/probe.py (filtra 14 dias, escolhe o dia elegivel mais recente pela palavra do cabecalho, hoje inclusive). Fallback pelo DOM: SsgController.list_osi_help_items(day), criando a linha de apontamento se preciso e SEMPRE desfazendo depois"
   },
   "implementacao": {
     "controller": "src/modules/browser/ssg_controller.py -- copia executavel destes seletores",

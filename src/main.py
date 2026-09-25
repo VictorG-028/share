@@ -5,8 +5,9 @@ Responsibilities (the only place that wires generation to browser-driving):
   1. load the trusted history,
   2. pick a strategy via the factory (default: static),
   3. generate the appointment value(s) ONCE,
-  4. refuse anything that is not in the past (SSG accepts only past days --
-     not even today -- and ``force`` does not bypass that),
+  4. refuse anything in the future (SSG cannot accept a timestamp that has
+     not happened yet, so ``force`` does not bypass that); today is left for
+     the SSG itself to accept or reject, depending on wall-clock time,
   5. skip weekends and Brazilian holidays by default (override with force=True),
   6. optionally hand the *same* generated values to a BrowserController.
 
@@ -27,6 +28,7 @@ from datetime import date, datetime, timedelta
 from models.appointment import Appointment
 from modules.history.loader import _load_history, append_appointment
 from modules.holiday.service import is_holiday
+from modules.osi_catalog import SOURCES, SOURCE_TIMESHEET
 from modules.strategy import DEFAULT_STRATEGY, StrategyType, get_strategy
 
 WEEKEND = {5, 6}  # Saturday, Sunday
@@ -57,12 +59,16 @@ def skip_reason(target_day: date, *, force: bool = False) -> str | None:
     """
     Why ``target_day`` cannot be punched, or ``None`` if it can.
 
-    The past-only rule comes first and is unconditional: SSG rejects the
-    current day and anything later, so ``force`` cannot lift it. ``force``
-    exists only for a weekend or holiday you were actually asked to work.
+    The future is unconditionally out: SSG cannot accept a timestamp that
+    has not happened yet, so ``force`` cannot lift it. Today is not
+    special-cased here -- whether the SSG actually accepts it depends on
+    whether the punched times have already passed in wall-clock terms, and
+    that is for the SSG itself to decide when we try, not something we
+    predict client-side. ``force`` exists only for a weekend or holiday you
+    were actually asked to work.
     """
-    if target_day >= date.today():
-        return "nao esta no passado -- o SSG so aceita dias passados, nem hoje"
+    if target_day > date.today():
+        return "esta no futuro -- o SSG so aceita ate hoje"
     if force:
         return None
     if target_day.weekday() in WEEKEND:
@@ -228,6 +234,37 @@ def punch(
     return EXIT_OK
 
 
+def add_refresh_arguments(parser: argparse.ArgumentParser) -> None:
+    """
+    The options that shape a catalog refresh, shared by both entry points.
+
+    Defined once and added to both parsers so ``auto-appointment
+    --refresh-osi-list`` and the dedicated ``refresh-osi-list`` executable
+    cannot drift apart -- the second exists only so the action is a
+    double-click, not so it can do more.
+    """
+    parser.add_argument(
+        "--fonte",
+        choices=list(SOURCES),
+        default=SOURCE_TIMESHEET,
+        help=(
+            "de onde ler as OSI: 'apontamento' = a lista do '?' do dia (padrao); "
+            "'listagem' = todas as suas, com status e validade; 'ambas' "
+            "(padrao: %(default)s)"
+        ),
+    )
+    parser.add_argument(
+        "--incluir-feriado",
+        action="store_true",
+        help="aceitar um feriado como o dia cuja lista de OSI sera lida",
+    )
+    parser.add_argument(
+        "--incluir-fim-de-semana",
+        action="store_true",
+        help="aceitar sabado/domingo como o dia cuja lista de OSI sera lida",
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="auto-appointment",
@@ -287,9 +324,10 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "abre o SSG, LE (nao grava) a lista de OSI e atualiza o cache "
-            "local; ignora as outras flags"
+            "local; ignora as flags de apontamento (aceita as de refresh)"
         ),
     )
+    add_refresh_arguments(parser)
     parser.add_argument(
         "--register-new-osi",
         action="store_true",
@@ -302,7 +340,13 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
-def refresh_osi_list(*, port: int | None = None) -> int:
+def refresh_osi_list(
+    *,
+    port: int | None = None,
+    include_holidays: bool = False,
+    include_weekends: bool = False,
+    source: str = SOURCE_TIMESHEET,
+) -> int:
     """Read-only: refresh the local OSI catalog cache from the live site."""
     # Imported lazily, same reasoning as punch()'s browser-stack imports.
     from modules.browser.browsers import DEFAULT_PORT, BrowserNotFound
@@ -311,16 +355,43 @@ def refresh_osi_list(*, port: int | None = None) -> int:
     from modules.osi_catalog import refresh_catalog, save_catalog
 
     try:
-        entries = refresh_catalog(port=port or DEFAULT_PORT)
+        result = refresh_catalog(
+            port=port or DEFAULT_PORT,
+            include_holidays=include_holidays,
+            include_weekends=include_weekends,
+            source=source,
+        )
     except SsgLoginRequired as error:
         print(f"Login necessario: {error}")
         return EXIT_ERROR
     except (BrowserNotFound, SsgError, CdpError) as error:
         print(f"Erro: {error}")
         return EXIT_ERROR
-    save_catalog(entries)
-    print(f"OSI: {len(entries)} entradas gravadas em cache.")
-    return EXIT_OK if entries else EXIT_NOTHING_TO_DO
+
+    save_catalog(result.entries, sources=result.sources)
+    _report_catalog(result)
+    return EXIT_OK if result.entries else EXIT_NOTHING_TO_DO
+
+
+def _report_catalog(result) -> None:
+    """Say what was captured, from which day, and how much of it is usable."""
+    from modules.osi_catalog import punchable
+
+    print(f"OSI: {len(result.entries)} entradas gravadas em cache.")
+    if result.day_used is not None:
+        # Which day matters: the site filters the list by day, so the catalog
+        # is only as current as the day that answered.
+        print(f"  lista do dia {result.day_used.strftime('%d/%m/%Y')}")
+    statuses: dict[str, int] = {}
+    for entry in result.entries:
+        statuses[entry.status or "sem status"] = statuses.get(entry.status or "sem status", 0) + 1
+    if statuses:
+        print("  " + ", ".join(f"{name}: {count}" for name, count in sorted(statuses.items())))
+    reference = result.day_used or date.today()
+    usable = punchable(result.entries, reference)
+    print(f"  apontaveis em {reference.strftime('%d/%m/%Y')}: {len(usable)}")
+    for name in result.fell_back:
+        print(f"  (fonte '{name}' veio pela tela, nao pelo endpoint)")
 
 
 def cli(argv: list[str] | None = None) -> int:
@@ -335,7 +406,12 @@ def cli(argv: list[str] | None = None) -> int:
 
     args = build_parser().parse_args(argv)
     if args.refresh_osi_list:
-        return refresh_osi_list(port=args.port)
+        return refresh_osi_list(
+            port=args.port,
+            include_holidays=args.incluir_feriado,
+            include_weekends=args.incluir_fim_de_semana,
+            source=args.fonte,
+        )
     if args.register_new_osi:
         from register_new_osi import run as register_new_osi
 

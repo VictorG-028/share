@@ -20,16 +20,22 @@ Two design choices are deliberate and should survive refactors:
 from __future__ import annotations
 
 import time as _time
-from datetime import date, datetime, time
+from datetime import date, time
 from typing import Any
 
 from models.appointment import Appointment
 from modules.browser import browsers, ssg_list_modal
 from modules.browser.base import BrowserController
 from modules.browser.cdp import ElementNotFound
-from modules.browser.ssg_screen import FieldMismatch, SsgError, SsgLoginRequired, SsgScreen
+from modules.browser.ssg_screen import (
+    FieldMismatch,
+    SsgAlert,
+    SsgError,
+    SsgLoginRequired,
+    SsgScreen,
+)
 
-__all__ = ["SsgController", "SsgError", "SsgLoginRequired", "FieldMismatch"]
+__all__ = ["SsgController", "SsgError", "SsgLoginRequired", "SsgAlert", "FieldMismatch"]
 
 ENTRY_URL = "https://ssg.sysmap.com.br/index.html#/access-entry/get-list"
 
@@ -42,15 +48,26 @@ _APPOINTMENT_ROWS_PER_DAY = 1
 _NO_NOTE = {"", ";"}
 
 # Waits. The screen is jQuery + AJAX; these were measured against the real site.
-_AFTER_FILTER_SECONDS = 8
-_FILTER_TIMEOUT_SECONDS = 40  # a 30-day range renders slower than one day
-_AFTER_ROW_ADD_SECONDS = 1.2
+_FILTER_TIMEOUT_SECONDS = 40  # ceiling only: the filter answers in ~1.3s
+_ROW_CHANGE_TIMEOUT_SECONDS = 8
 _AFTER_SAVE_SECONDS = 6
 
+#: Marks the panels that are on screen BEFORE a filter, so the wait afterwards
+#: can tell a fresh result from the previous one. Without it, "wait for the
+#: panel of day X" matches the panel the LAST filter drew -- which is how a
+#: filter that never happened (a click swallowed by an alert's backdrop) passed
+#: for a successful one until 2026-09-10.
+_MARK_STALE = (
+    "([...document.querySelectorAll('.access-entry-day')]"
+    ".forEach(d => d.setAttribute('data-aa-stale', '1')), 1)"
+)
+
 _FILTER_BUTTON = (
-    "[...document.querySelectorAll('button,a,input[type=button]')]"
+    "([...document.querySelectorAll('button.button-filter')]"
+    ".find(b => b.getClientRects().length > 0)"
+    " || [...document.querySelectorAll('button,a,input[type=button]')]"
     ".find(b => ((b.textContent || b.value || '').trim() === 'Filtrar')"
-    " && b.getClientRects().length > 0)"
+    " && b.getClientRects().length > 0))"
 )
 _SAVE_BUTTON = (
     "[...document.querySelectorAll('button,a.btn')]"
@@ -107,6 +124,21 @@ def day_locator(day: date) -> str:
     return (
         "[...document.querySelectorAll('.access-entry-day')]"
         ".find(d => d.textContent.includes('" + stamp + "'))"
+    )
+
+
+def fresh_day_locator(day: date) -> str:
+    """
+    JS that is truthy only once ``day``'s panel came from the LATEST filter.
+
+    Reads the marker :data:`_MARK_STALE` put on the panels that were already
+    there, which is the whole point: the previous filter's panel for the same
+    day looks identical.
+    """
+    stamp = day.strftime("%d/%m/%Y")
+    return (
+        "[...document.querySelectorAll('.access-entry-day:not([data-aa-stale])')]"
+        ".some(d => d.textContent.includes('" + stamp + "'))"
     )
 
 
@@ -179,26 +211,75 @@ class SsgController(SsgScreen, BrowserController):
         self.filter_range(day, day)
 
     def filter_range(self, start: date, end: date) -> None:
-        """Filter the screen to ``start``..``end`` and wait for ``end``'s panel."""
-        for selector, day in ((".start-date", start), (".end-date", end)):
-            self.page.type_masked("document.querySelector('" + selector + "')", date_digits(day))
-        self.page.click(_FILTER_BUTTON)
-        _time.sleep(_AFTER_FILTER_SECONDS)
-        self.require_session()
-        try:
-            self.page.wait_for(day_locator(end), timeout_seconds=_FILTER_TIMEOUT_SECONDS)
-        except ElementNotFound as error:
-            raise SsgError(f"O dia {end.isoformat()} nao apareceu apos filtrar.") from error
+        """
+        Filter the screen to ``start``..``end`` and wait for a FRESH ``end`` panel.
 
-    def days_with_appointments(self) -> list[date]:
-        """Days on screen that already hold a real appointment row, oldest first."""
-        stamps = self.page.evaluate_json(
-            "JSON.stringify([...document.querySelectorAll('.access-entry-day')]"
-            ".filter(d => d.querySelectorAll('tr.appointment-row:not(.hide)').length > 0)"
-            ".map(d => (d.textContent.match(/\\d{2}\\/\\d{2}\\/\\d{4}/) || [null])[0])"
-            ".filter(Boolean))"
+        Three things here are load-bearing, all of them lessons from one silent
+        failure measured on 2026-09-10:
+
+        * the typed dates are **read back and checked** -- the masked field can
+          reshuffle input into garbage (``31/07/261``), and the site then
+          refuses the whole filter;
+        * an alert already on screen is cleared first, because its backdrop
+          swallows the click on "Filtrar" and nothing happens at all;
+        * the wait is for a panel that did **not** exist before the click, so a
+          stale screen can never pass for a fresh result.
+        """
+        context = f"filtro {start.isoformat()}..{end.isoformat()}"
+        self.clear_stale_alert()
+        self.clear_stale_overlay()
+        for selector, day, label in (
+            (".start-date", start, "data inicial"),
+            (".end-date", end, "data final"),
+        ):
+            locator = "document.querySelector('" + selector + "')"
+            expected = day.strftime("%d/%m/%Y")
+            # Typing a masked date costs ~1.7s (a focus settle plus eight keys
+            # that cannot be rushed without the mask garbling them), so a field
+            # that already holds the wanted date is left alone -- which is the
+            # common case when the same range is filtered twice.
+            if self.page.evaluate("(" + locator + " || {}).value") == expected:
+                continue
+            actual = self.page.type_masked(locator, date_digits(day))
+            if actual != expected:
+                raise FieldMismatch(
+                    f"{label}: campo ficou {actual!r}, esperava {expected!r} -- nao filtrei."
+                )
+
+        self.page.evaluate(_MARK_STALE)
+        self.page.click(_FILTER_BUTTON)
+        arrived = self.page.poll_until(
+            fresh_day_locator(end),
+            timeout_seconds=_FILTER_TIMEOUT_SECONDS,
+            on_tick=lambda: self.fail_on_alert(context),
         )
-        return sorted(datetime.strptime(stamp, "%d/%m/%Y").date() for stamp in stamps)
+        if not arrived:
+            self.require_session()
+            raise SsgError(
+                f"O dia {end.isoformat()} nao apareceu apos filtrar." + self.stuck_hint()
+            )
+        self.require_session()
+
+    def days_on_screen(self) -> list[dict[str, Any]]:
+        """
+        Every day panel currently drawn, raw: stamp, heading text, row count.
+
+        Deliberately dumb -- it reads, it does not judge. The site writes the
+        weekday in the heading in caps (``QUINTA-FEIRA``) and replaces it with
+        ``FERIADO`` on a holiday, which is the only place that knowledge exists
+        (a company holiday is not in any public calendar). Turning that text
+        into "can I use this day" is
+        :func:`modules.osi_catalog.day_choice.parse_panels`, which is pure and
+        tested; keeping the split means the rule can be exercised without a
+        browser.
+        """
+        return self.page.evaluate_json(
+            "JSON.stringify([...document.querySelectorAll('.access-entry-day')].map(d => ({"
+            " stamp: ((d.textContent.match(/\\d{2}\\/\\d{2}\\/\\d{4}/) || [null])[0]),"
+            " heading: (d.querySelector('.panel-heading') || d).textContent.replace(/\\s+/g, ' ').trim(),"
+            " appointments: d.querySelectorAll('tr.appointment-row:not(.hide)').length"
+            "})).filter(p => p.stamp))"
+        ) or []
 
     def row_counts(self, day: date) -> dict[str, int]:
         """How many real (non-template) rows the day currently has."""
@@ -210,15 +291,38 @@ class SsgController(SsgScreen, BrowserController):
             " appointment: d.querySelectorAll('tr.appointment-row:not(.hide)').length}); })()"
         )
 
-    def _expand(self, day: date) -> None:
-        collapsed = self.page.evaluate(
+    @staticmethod
+    def _collapsed(day: date) -> str:
+        return (
             "(() => { const d = " + day_locator(day) + ";"
             " const body = d && d.querySelector('.day-body');"
             " return !!body && getComputedStyle(body).display === 'none'; })()"
         )
-        if collapsed:
-            self.page.click(_visible_in_day(day, ".button-toggle-day"))
-            _time.sleep(_AFTER_ROW_ADD_SECONDS)
+
+    def _expand(self, day: date) -> None:
+        if not self.page.evaluate(self._collapsed(day)):
+            return
+        self.page.click(_visible_in_day(day, ".button-toggle-day"))
+        # Poll instead of sleeping: the panel opens as fast as the CSS lets it,
+        # and the old flat 1.2s was a guess that was always either too long or,
+        # on a busy screen, too short.
+        if not self.page.poll_until(
+            "!(" + self._collapsed(day) + ")", timeout_seconds=_ROW_CHANGE_TIMEOUT_SECONDS
+        ):
+            raise SsgError(f"O painel do dia {day.isoformat()} nao abriu.")
+
+    def _wait_row_change(self, day: date, before: dict[str, int]) -> None:
+        """Block until the day's row counts differ from ``before``."""
+        changed = self.page.poll_until(
+            "(() => { const d = " + day_locator(day) + "; if (!d) return false;"
+            " return d.querySelectorAll('tr.access-record-row:not(.hide)').length !== "
+            + str(before["access"]) +
+            " || d.querySelectorAll('tr.appointment-row:not(.hide)').length !== "
+            + str(before["appointment"]) + "; })()",
+            timeout_seconds=_ROW_CHANGE_TIMEOUT_SECONDS,
+        )
+        if not changed:
+            self.fail_on_alert(f"linha do dia {day.isoformat()}")
 
     def ensure_rows(self, day: date) -> None:
         """
@@ -242,7 +346,7 @@ class SsgController(SsgScreen, BrowserController):
                 self.page.click(_visible_in_day(day, ".button-add-access-row"))
             else:
                 self.page.click(_visible_in_day(day, ".button-add-appointment-row"))
-            _time.sleep(_AFTER_ROW_ADD_SECONDS)
+            self._wait_row_change(day, counts)
         raise SsgError(
             f"Nao consegui criar as linhas do dia {day.isoformat()} "
             f"(estado final: {self.row_counts(day)})."
@@ -266,6 +370,64 @@ class SsgController(SsgScreen, BrowserController):
         )
 
     # ------------------------------------------------------------- osi list
+
+    def ensure_appointment_row(self, day: date) -> bool:
+        """
+        Give ``day`` an appointment row if it has none. Returns whether it created one.
+
+        Only the fallback path needs this: reading a day's OSI list through the
+        site's own endpoint (:mod:`modules.browser.ssg_api`) needs no row at
+        all. When it is needed, the row created here is **always** undone by
+        :meth:`discard_appointment_row` -- the row is client-side only and
+        nothing here ever saves, but leaving a half-filled day in the window
+        the user also works in would arm the global "Salvar dias alterados"
+        button with an empty appointment.
+        """
+        self._expand(day)
+        counts = self.row_counts(day)
+        if counts is None:
+            raise SsgError(f"Painel do dia {day.isoformat()} sumiu da tela.")
+        if counts["appointment"] >= _APPOINTMENT_ROWS_PER_DAY:
+            return False
+        self.page.click(_visible_in_day(day, ".button-add-appointment-row"))
+        self._wait_row_change(day, counts)
+        after = self.row_counts(day)
+        if not after or not after["appointment"]:
+            raise SsgError(
+                f"Nao consegui criar a linha de apontamento do dia {day.isoformat()} "
+                "para abrir a lista de OSI."
+            )
+        return True
+
+    def discard_appointment_row(self, day: date) -> None:
+        """
+        Undo the row :meth:`ensure_appointment_row` created, whatever it takes.
+
+        Prefers the row's own remove button; if the screen does not offer one,
+        re-navigating the route throws the page's state away and brings the day
+        back exactly as the server has it. Either way the screen is left as it
+        was found.
+        """
+        try:
+            self.page.click(_visible_in_day(day, ".button-remove-appointment-row"))
+        except ElementNotFound:
+            self.page.navigate(self.url)
+            self.page.wait_for(
+                "document.querySelector('" + self.ready_selector + "')",
+                timeout_seconds=_FILTER_TIMEOUT_SECONDS,
+            )
+            return
+        counts = self.page.poll_until(
+            "(() => { const d = " + day_locator(day) + ";"
+            " return !d || d.querySelectorAll('tr.appointment-row:not(.hide)').length === 0; })()",
+            timeout_seconds=_ROW_CHANGE_TIMEOUT_SECONDS,
+        )
+        if not counts:
+            self.page.navigate(self.url)
+            self.page.wait_for(
+                "document.querySelector('" + self.ready_selector + "')",
+                timeout_seconds=_FILTER_TIMEOUT_SECONDS,
+            )
 
     def _open_osi_list(self, day: date) -> list[str]:
         """

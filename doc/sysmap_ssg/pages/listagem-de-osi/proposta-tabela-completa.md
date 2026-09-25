@@ -71,3 +71,31 @@ Botão "?" adotado e implementado (`SsgController.list_osi_help_items` +
 `modules/osi_catalog/probe.py`). Esta leitura da tabela inteira **não** foi
 implementada; fica documentada como fallback -- e como a única das duas
 fontes que expõe o Status de cada OSI, se um dia isso for necessário.
+
+## Desfecho (2026-09-10): as duas fontes, nenhuma pela tela
+
+"Um dia" chegou. As duas fontes passaram a ser lidas **pelos endpoints que as
+próprias telas chamam** (`../../api.md`), e a leitura desta tabela virou o
+fallback do fallback (`src/modules/browser/ssg_osi_list.py`).
+
+O que a sondagem respondeu das "perguntas em aberto" acima:
+
+1. **`Liberado` não basta.** Das 30 OSI do usuário, 24 estavam `Liberado`, mas
+   só **4** valiam no dia: as outras tinham `OsiActivityEndDateStr` no
+   passado. A regra é `Liberado` **E** dia dentro da janela. (`Aberto`,
+   `Aprovado Gestor` e `Reprovado` seguem sem exemplo real.)
+2. **Latência medida com rigor**: tela 60s+; endpoint 0,645s.
+3. **Navegar para cá e voltar** não teve efeito colateral na sessão nem na
+   tela de apontamento — é só troca de hash, como se supunha.
+
+E a correção mais importante deste documento: **a tabela é mais pobre que o
+endpoint**. O `ReturnObject` traz `ActivityName`/`ActivityId` (que a tabela
+não tem) e `OsiActivityStartDateStr`/`OsiActivityEndDateStr` (a janela real,
+não as colunas "Estimado"), o que permite **reconstruir o rótulo composto
+exatamente como o "?" o mostra** — e é isso que deixa as duas fontes se
+fundirem num catálogo só. Lendo a tabela, o melhor rótulo possível é
+`OSI <código> | <projeto> | <descrição>`, sem a atividade.
+
+As duas fontes continuam **complementares, não redundantes**: só o "?" vê as
+OSI que o gestor abre para o time inteiro (13 das 17 linhas em 10/09), porque
+elas têm outra pessoa como profissional.

@@ -230,8 +230,10 @@ monta a mesma lista de argv que já seria digitada e chama `cli()` normalmente
       `main.py` nunca roda nesse caminho; ver comentário no código)
 - [x] `main.cli([])` continua significando exatamente "ontem, modo seco"
 - [x] Rollover de calendário real no Dia; clamp de mês/ano (`calendar.monthrange`)
-- [x] Validação ao vivo reaproveitando `skip_reason()` (vermelho = hoje/futuro,
-      nunca libera; amarelo = fim de semana/feriado, libera com Force)
+- [x] Validação ao vivo reaproveitando `skip_reason()` (vermelho = futuro,
+      nunca libera; amarelo = fim de semana/feriado, libera com Force; hoje
+      nao bloqueia mais -- so exibe um aviso informativo e deixa o SSG
+      decidir de verdade, ver `regra-so-apontar-passado` na memoria)
 - [x] Navegação só-pra-frente (Right avança e dá a volta; Left nunca troca de
       linha) -- decisão explícita, não é um grid simétrico
 - [x] Testado com `create_pipe_input()`/`DummyOutput` (sem terminal real) para

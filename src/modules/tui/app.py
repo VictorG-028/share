@@ -22,6 +22,8 @@ from prompt_toolkit.layout import Layout
 from prompt_toolkit.layout.containers import Window
 from prompt_toolkit.layout.controls import FormattedTextControl
 
+from modules.tui.refresh_render import render_refresh
+from modules.tui.refresh_state import RefreshFormState
 from modules.tui.render import render_text
 from modules.tui.state import FormState
 
@@ -118,3 +120,78 @@ def build_application(state: FormState, *, input=None, output=None) -> Applicati
 def run_tui() -> list[str] | None:
     state = FormState.initial()
     return build_application(state).run()
+
+
+# ------------------------------------------------------------------ refresh
+
+
+def build_refresh_application(
+    state: RefreshFormState, *, input=None, output=None
+) -> Application:
+    """
+    The ``refresh-osi-list`` screen: a source spinner and two toggles.
+
+    A second ``Application`` rather than a mode of the first -- the two screens
+    answer different questions and share no field -- but it lives here so this
+    file stays the only one in the package that imports ``prompt_toolkit``.
+    """
+    control = FormattedTextControl(lambda: ANSI(render_refresh(state)))
+    layout = Layout(Window(content=control))
+    bindings = KeyBindings()
+
+    @bindings.add("left")
+    def _left(event):
+        state.move_left()
+        event.app.invalidate()
+
+    @bindings.add("right")
+    def _right(event):
+        state.move_right()
+        event.app.invalidate()
+
+    @bindings.add("up")
+    @bindings.add("w")
+    def _up(event):
+        state.bump_value(+1)
+        event.app.invalidate()
+
+    @bindings.add("down")
+    @bindings.add("s")
+    def _down(event):
+        state.bump_value(-1)
+        event.app.invalidate()
+
+    @bindings.add(" ")
+    @bindings.add("tab")
+    def _space(event):
+        # On a toggle, Space is the obvious gesture; on the spinner it steps
+        # forward, which is what Tab does everywhere else in this form.
+        state.bump_value(+1)
+        event.app.invalidate()
+
+    @bindings.add("enter")
+    def _enter(event):
+        event.app.exit(result=state.try_submit())
+
+    @bindings.add("escape")
+    @bindings.add("c-c")
+    def _abort(event):
+        event.app.exit(result=None)
+
+    return Application(
+        layout=layout,
+        key_bindings=bindings,
+        full_screen=True,
+        input=input,
+        output=output,
+    )
+
+
+def run_refresh_tui() -> list[str] | None:
+    """The chosen options as argv, or ``None`` when cancelled.
+
+    An empty list means "all defaults" and is a real answer -- callers must
+    compare against ``None``, never test truthiness.
+    """
+    state = RefreshFormState.initial()
+    return build_refresh_application(state).run()

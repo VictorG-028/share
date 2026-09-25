@@ -50,6 +50,19 @@ class ElementNotFound(CdpError):
     """A locator matched nothing, or matched something with no box."""
 
 
+class ClickBlocked(CdpError):
+    """
+    Something else is on top of the element, so the click would land on it.
+
+    This site produces such blockers twice over: its Bootbox alert, and a
+    loading overlay that stays up when a request it was waiting on never
+    finished. Both are invisible to a locator -- the button is found, visible
+    and the right size -- and a click on them does nothing at all. Silently
+    doing nothing is how a filter that never ran passed for a successful one
+    (measured 2026-09-10 and again 2026-09-11), so it raises.
+    """
+
+
 def list_targets(port: int = DEFAULT_PORT) -> list[dict[str, Any]]:
     """Every open target (tabs, workers, extensions) on ``port``."""
     try:
@@ -192,9 +205,31 @@ class CdpPage:
             raise ElementNotFound(f"elemento invisivel (tamanho zero): {locator_js}")
         return box
 
+    def blocker(self, locator_js: str) -> str | None:
+        """
+        What is covering the element's centre, if anything. ``None`` if clear.
+
+        Uses the page's own hit testing (``elementFromPoint``): whatever it
+        returns there is what a real mouse click would reach. The element
+        itself, an ancestor, or a child of it (an icon inside a button) all
+        count as clear.
+        """
+        return self.evaluate(
+            "(() => { const el = " + locator_js + "; if (!el) return null;"
+            " const r = el.getBoundingClientRect();"
+            " const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2);"
+            " if (!top || top === el || el.contains(top) || top.contains(el)) return null;"
+            " const cls = typeof top.className === 'string' ? top.className : '';"
+            " return (top.tagName + (cls ? '.' + cls : '')).slice(0, 120)"
+            "     + ' [' + (top.getAttribute('style') || '').slice(0, 80) + ']'; })()"
+        )
+
     def click(self, locator_js: str) -> None:
         """Click with a real mouse event. Required: ``el.click()`` is ignored."""
         box = self._box(locator_js)
+        covered = self.blocker(locator_js)
+        if covered:
+            raise ClickBlocked(f"algo cobre o elemento e receberia o clique: {covered}")
         point = {"x": box["x"], "y": box["y"]}
         self.send("Input.dispatchMouseEvent", {"type": "mouseMoved", "button": "none", "clickCount": 0, **point})
         for event in ("mousePressed", "mouseReleased"):
@@ -267,8 +302,16 @@ class CdpPage:
         self.send("Page.enable")
         self.send("Page.reload", {"ignoreCache": ignore_cache})
 
-    def wait_for(self, locator_js: str, *, timeout_seconds: float = 20) -> None:
-        """Block until ``locator_js`` matches a visible element."""
+    def wait_for(
+        self, locator_js: str, *, timeout_seconds: float = 20, poll_seconds: float = 0.1
+    ) -> None:
+        """
+        Block until ``locator_js`` matches a visible element.
+
+        The poll is 100ms, not the half-second it used to be: the screen's own
+        AJAX answers in ~1.3s (measured 2026-09-10), so a coarse poll spends
+        more time sleeping than the site spends working.
+        """
         deadline = time.monotonic() + timeout_seconds
         last: Exception | None = None
         while time.monotonic() < deadline:
@@ -277,8 +320,88 @@ class CdpPage:
                 return
             except (ElementNotFound, CdpError) as error:
                 last = error
-                time.sleep(0.5)
+                time.sleep(poll_seconds)
         raise ElementNotFound(f"esperei {timeout_seconds}s por {locator_js} ({last})")
+
+    def poll_until(
+        self,
+        expression_js: str,
+        *,
+        timeout_seconds: float = 20,
+        poll_seconds: float = 0.1,
+        on_tick=None,
+    ) -> object:
+        """
+        Evaluate ``expression_js`` until it returns something truthy.
+
+        Returns that value, or ``None`` on timeout -- "it never happened" is an
+        answer the caller must be able to phrase in its own words (which day,
+        which screen), so this does not raise. ``on_tick`` runs once per round
+        and may raise to abort early; that is how a site alert cuts a wait
+        short instead of burning the whole timeout.
+        """
+        deadline = time.monotonic() + timeout_seconds
+        while True:
+            value = self.evaluate(expression_js)
+            if value:
+                return value
+            if on_tick is not None:
+                on_tick()
+            if time.monotonic() >= deadline:
+                return None
+            time.sleep(poll_seconds)
+
+    # -------------------------------------------------------------- network
+
+    def fetch_json(
+        self,
+        url: str,
+        *,
+        method: str = "GET",
+        form: dict[str, str] | None = None,
+        timeout_seconds: float = 30,
+    ) -> Any:
+        """
+        Run ``fetch`` INSIDE the page and return the parsed JSON.
+
+        Inside the page on purpose: the site's session is a cookie in the
+        browser profile, so a request made from Python would be anonymous. This
+        is the same call the page's own jQuery makes -- see
+        :mod:`modules.browser.ssg_api` for what the site's service layer puts
+        in it -- and it lets a list be read for any day without touching the
+        DOM at all.
+        """
+        body = "null"
+        if form is not None:
+            body = "new URLSearchParams(" + json.dumps(form) + ")"
+        expression = (
+            "(async () => { const r = await fetch(" + json.dumps(url) + ", {"
+            " method: " + json.dumps(method) + ", credentials: 'include',"
+            + (
+                " headers: {'Content-Type': 'application/x-www-form-urlencoded'},"
+                " body: " + body + ","
+                if form is not None
+                else ""
+            )
+            + " }); const text = await r.text();"
+            " return JSON.stringify({status: r.status, body: text}); })()"
+        )
+        previous = self._ws.gettimeout()
+        try:
+            self._ws.settimeout(timeout_seconds)
+            raw = self.evaluate(expression)
+        finally:
+            try:
+                self._ws.settimeout(previous)
+            except Exception:  # noqa: BLE001 - restoring a timeout must not mask
+                pass
+        payload = json.loads(raw)
+        if payload["status"] != 200:
+            raise CdpError(f"{method} {url} respondeu HTTP {payload['status']}")
+        try:
+            return json.loads(payload["body"])
+        except json.JSONDecodeError as error:
+            raise CdpError(f"{method} {url} nao respondeu JSON: {payload['body'][:200]!r}") from error
 
     def screenshot(self, path: str) -> None:
         data = self.send("Page.captureScreenshot", {"format": "png"})["data"]

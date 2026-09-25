@@ -30,9 +30,9 @@ def test_clean_date_has_no_color_codes():
     assert YELLOW not in text
 
 
-def test_today_is_red():
+def test_today_is_no_longer_red():
     text = render_text(_state(date.today()))
-    assert RED in text
+    assert RED not in text
 
 
 def test_weekend_without_force_is_yellow():

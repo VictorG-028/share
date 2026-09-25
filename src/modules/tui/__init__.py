@@ -9,6 +9,6 @@ instead of a real terminal.
 
 from __future__ import annotations
 
-from modules.tui.app import run_tui
+from modules.tui.app import run_refresh_tui, run_tui
 
-__all__ = ["run_tui"]
+__all__ = ["run_refresh_tui", "run_tui"]
