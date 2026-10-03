@@ -195,7 +195,7 @@ def load_osi_spinner() -> OsiSpinner:
 
     There is no built-in default OSI any more: one written into the code is a
     dead project a month later (82695 was), and booking the wrong OSI is worse
-    than being told to run ``refresh-osi-list``.
+    than being told to run "Atualizar lista de OSI".
     """
     from modules.osi_catalog import load_catalog, load_last_used
 
@@ -219,20 +219,28 @@ def load_osi_spinner() -> OsiSpinner:
     return OsiSpinner(entries=entries, index=index)
 
 
-ROWS: tuple[tuple[str, ...], ...] = (
-    ("day", "month", "year", "force"),
-    ("osi",),
-    ("save",),
-)
+#: One field per line, top to bottom -- the order Up/Down walk through.
+ROWS: tuple[str, ...] = ("day", "month", "year", "force", "osi", "action", "run")
 
 
 @dataclass
 class FormState:
+    """
+    The whole form. Keys, in one place so they mean one thing each:
+
+    * ``move_next``/``move_prev`` (Down/Up) change the *line*, never a value;
+    * ``bump_value`` (Right/Left) changes the focused value;
+    * ``activate`` (Enter/Space) is "forward": the same as Right, except on
+      the OSI line (opens the list) and on the last button (executes).
+
+    ``save`` is what the "Acao" line shows: ``False`` only fills the screen
+    (the safe default), ``True`` really saves.
+    """
+
     date: DateCursor
     osi: OsiSpinner
-    save: bool = True
-    row: int = 0
-    field: int = 0
+    save: bool = False
+    focus: int = 0
 
     @classmethod
     def initial(cls) -> "FormState":
@@ -245,28 +253,43 @@ class FormState:
         return state
 
     def focus_name(self) -> str:
-        return ROWS[self.row][self.field]
+        return ROWS[self.focus]
 
-    def move_right(self) -> None:
-        if self.field + 1 < len(ROWS[self.row]):
-            self.field += 1
-        else:
-            self.row = (self.row + 1) % len(ROWS)
-            self.field = 0
+    def move_next(self) -> None:
+        if self.osi.picking:
+            self.osi.move_pick(+1)  # in the list, Down is the row below
+            return
+        self.focus = (self.focus + 1) % len(ROWS)
 
-    def move_left(self) -> None:
-        # Never changes row -- navigation is one-directional (confirmed
-        # explicitly: Right always advances, including wrap-around; Left
-        # just stops at the first field of the current row).
-        self.field = max(0, self.field - 1)
+    def move_prev(self) -> None:
+        if self.osi.picking:
+            self.osi.move_pick(-1)
+            return
+        self.focus = (self.focus - 1) % len(ROWS)
+
+    def activate(self) -> list[str] | None:
+        """
+        Enter/Space. Returns the argv only when this press executes.
+
+        ``None`` means "stay on the form" -- either a value moved, a list
+        opened/closed, or the button was pressed while the form is blocked
+        (the screen says why).
+        """
+        if self.osi.picking:
+            self.osi.choose()
+            return None
+        name = self.focus_name()
+        if name == "run":
+            return self.try_submit()
+        if name == "osi":
+            self.osi.open_picker()
+            return None
+        self.bump_value(+1)
+        return None
 
     def bump_value(self, delta: int) -> None:
         if self.osi.picking:
-            # The overlay owns the arrows while it is up -- and inverts them:
-            # on the form Down means "one less" (a day, a month), in a list it
-            # means the row below.
-            self.osi.move_pick(-delta)
-            return
+            return  # the list owns the keys while it is up; Left/Right do nothing
         name = self.focus_name()
         if name in ("day", "month", "year"):
             if name == "day":
@@ -282,11 +305,11 @@ class FormState:
             self.date.toggle_force()
         elif name == "osi":
             self.osi.bump(delta)
-        elif name == "save":
+        elif name == "action":
             self.save = not self.save
 
     def block_reason(self) -> str | None:
-        """Why Enter would not submit, or ``None``. Also what the form shows."""
+        """Why the button would not execute, or ``None``. The form shows it."""
         status = self.date.status()
         if status.blocked:
             return status.message
@@ -295,11 +318,11 @@ class FormState:
                 # The catalog is not empty -- these OSIs just do not apply to
                 # this day, which is a different problem and a different fix.
                 return "nenhuma OSI vale para este dia (cancelada, finalizada ou fora do periodo)"
-            return "sem OSI para apontar -- rode refresh-osi-list"
+            return "sem OSI para apontar -- use 'Atualizar lista de OSI' no menu"
         return None
 
     def try_submit(self) -> list[str] | None:
-        """``None`` if blocked -- checked regardless of current focus."""
+        """``None`` if blocked."""
         if self.block_reason() is not None:
             return None
         from modules.tui.argv_builder import build_argv

@@ -21,81 +21,126 @@ def _state(d: date = PAST_WEEKDAY) -> FormState:
     )
 
 
+def _focus(state: FormState, name: str) -> FormState:
+    state.focus = ROWS.index(name)
+    return state
+
+
 # ------------------------------------------------------------ navigation
 
 
-def test_move_right_walks_through_every_field_and_wraps_to_row_zero():
+def test_the_form_is_one_flat_list_in_reading_order():
+    assert ROWS == ("day", "month", "year", "force", "osi", "action", "run")
+
+
+def test_down_walks_every_line_and_wraps_to_the_top():
     state = _state()
-    visited = [(state.row, state.field)]
-    for _ in range(sum(len(row) for row in ROWS)):
-        state.move_right()
-        visited.append((state.row, state.field))
-    # after visiting every field, one more Right returns to the very start
-    assert visited[0] == (0, 0)
-    assert visited[-1] == (0, 0)
-    # the day/month/year/force row, then the osi row, then the save row
-    assert visited[1] == (0, 1)  # month
-    assert visited[4] == (1, 0)  # osi (row wrap after force)
-    assert visited[5] == (2, 0)  # save (row wrap after osi)
+    visited = [state.focus_name()]
+    for _ in ROWS:
+        state.move_next()
+        visited.append(state.focus_name())
+    assert visited[: len(ROWS)] == list(ROWS)
+    assert visited[-1] == ROWS[0]
 
 
-def test_move_left_never_changes_row():
+def test_up_goes_back_one_line_and_wraps_to_the_button():
     state = _state()
-    state.row, state.field = 1, 0  # osi row
-    state.move_left()
-    assert state.row == 1
-    assert state.field == 0
-    # repeated left from osi never lands back on force (previous row)
-    state.move_left()
-    state.move_left()
-    assert state.row == 1
+    state.move_prev()
+    assert state.focus_name() == "run"
+    state.move_prev()
+    assert state.focus_name() == "action"
 
 
-def test_move_left_stops_at_the_first_field_of_the_row():
+def test_moving_between_lines_never_changes_a_value():
     state = _state()
-    state.row, state.field = 0, 2  # year
-    state.move_left()
-    assert state.field == 1  # month
-    state.move_left()
-    assert state.field == 0  # day
-    state.move_left()
-    assert state.field == 0  # stays
+    before = (state.date.day, state.date.month, state.date.year, state.date.force, state.save)
+    for _ in range(2 * len(ROWS)):
+        state.move_next()
+    for _ in range(len(ROWS)):
+        state.move_prev()
+    after = (state.date.day, state.date.month, state.date.year, state.date.force, state.save)
+    assert before == after
 
 
 # ------------------------------------------------------------- bump_value
 
 
-def test_bump_value_dispatches_to_the_focused_field():
-    state = _state()
-    state.row, state.field = 0, 0  # day
-    before = state.date.day
-    state.bump_value(1)
-    assert state.date.day != before or state.date.month != PAST_WEEKDAY.month
+def test_right_and_left_change_the_focused_value_in_opposite_directions():
+    state = _focus(_state(), "day")
+    state.bump_value(+1)
+    assert state.date.as_date() == PAST_WEEKDAY + timedelta(days=1)
+    state.bump_value(-1)
+    assert state.date.as_date() == PAST_WEEKDAY
 
-    state.row, state.field = 0, 3  # force
+
+def test_force_and_action_toggle():
+    state = _focus(_state(), "force")
     assert state.date.force is False
-    state.bump_value(1)
+    state.bump_value(+1)
     assert state.date.force is True
 
-    state.row, state.field = 2, 0  # save
+    state = _focus(_state(), "action")
+    assert state.save is False  # the safe default: fill, never save
+    state.bump_value(+1)
     assert state.save is True
-    state.bump_value(1)
+    state.bump_value(-1)
     assert state.save is False
+
+
+def test_the_button_has_no_value_to_change():
+    state = _focus(_state(), "run")
+    before = (state.date.as_date(), state.date.force, state.save)
+    state.bump_value(+1)
+    state.bump_value(-1)
+    assert (state.date.as_date(), state.date.force, state.save) == before
+
+
+# --------------------------------------------------------------- activate
+
+
+def test_enter_on_a_value_moves_it_forward_like_right_does():
+    forward, enter = _focus(_state(), "month"), _focus(_state(), "month")
+    forward.bump_value(+1)
+    assert enter.activate() is None
+    assert enter.date.as_date() == forward.date.as_date()
+
+
+def test_enter_on_the_osi_line_opens_the_list_and_does_not_execute():
+    state = _focus(_state(), "osi")
+    assert state.activate() is None
+    assert state.osi.picking is True
+
+
+def test_enter_executes_only_on_the_last_button():
+    for name in ROWS[:-1]:
+        state = _focus(_state(), name)
+        assert state.activate() is None, name
+    result = _focus(_state(), "run").activate()
+    assert result is not None
+    assert "--day" in result
+
+
+def test_the_button_follows_the_action_line():
+    state = _state()
+    assert _focus(state, "run").activate()[-1] == "--fill"
+    state.save = True
+    assert _focus(state, "run").activate()[-2:] == ["--save", "--yes"]
+
+
+def test_the_button_does_nothing_while_the_form_is_blocked():
+    state = _focus(_state(date.today() + timedelta(days=1)), "run")
+    assert state.activate() is None  # the future is always blocked
 
 
 # --------------------------------------------------------------- submit
 
 
-def test_try_submit_returns_none_when_blocked_regardless_of_focus():
-    future = date.today() + timedelta(days=1)
-    state = _state(future)  # the future is always blocked
-    for row in range(len(ROWS)):
-        state.row = row
-        assert state.try_submit() is None
+def test_try_submit_returns_none_when_blocked():
+    state = _state(date.today() + timedelta(days=1))
+    assert state.try_submit() is None
 
 
 def test_try_submit_returns_argv_when_valid():
-    state = _state()  # a clean past weekday
-    result = state.try_submit()
+    result = _state().try_submit()
     assert result is not None
     assert "--day" in result

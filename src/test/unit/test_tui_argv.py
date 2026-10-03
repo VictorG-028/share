@@ -7,7 +7,7 @@ from modules.tui.state import DateCursor, FormState, OsiSpinner
 DAY = date(2026, 5, 29)
 
 
-def _state(*, force: bool = False, save: bool = True) -> FormState:
+def _state(*, force: bool = False, save: bool = False) -> FormState:
     return FormState(
         date=DateCursor(day=DAY.day, month=DAY.month, year=DAY.year, force=force),
         osi=OsiSpinner(entries=[OsiEntry(number="82695", label="OSI 82695")]),

@@ -18,7 +18,8 @@ def build_argv(state: "FormState") -> list[str]:
     if chosen is not None:
         argv += ["--osi", chosen.label]
     # --save already implies fill+verify in punch(); --fill would be
-    # redundant on that branch. --yes because the form's own Y/N toggle
-    # already served as the explicit confirmation.
+    # redundant on that branch. --yes because the form's "Acao: GRAVAR no
+    # SSG" line, and the button that names it, already served as the explicit
+    # confirmation.
     argv += ["--save", "--yes"] if state.save else ["--fill"]
     return argv

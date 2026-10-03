@@ -5,6 +5,7 @@ import pytest
 
 import main
 from modules.tui.state import (
+    ROWS,
     TODAY_HEADS_UP,
     DateCursor,
     FormState,
@@ -245,7 +246,7 @@ def _picker_state(labels: list[str]) -> FormState:
         date=DateCursor(day=29, month=5, year=2026),
         osi=OsiSpinner(entries=[OsiEntry.from_label(label) for label in labels]),
     )
-    state.row = 1  # the OSI row
+    state.focus = ROWS.index("osi")
     return state
 
 
@@ -258,19 +259,47 @@ def test_opening_the_picker_starts_on_what_is_selected():
 
 
 def test_down_moves_down_the_list_and_leaves_the_form_alone():
-    # bump_value(-1) is what the Down arrow sends; in a list that is the row
-    # below, not "one less".
+    # Down is move_next; in a list that is the row below, and the form's own
+    # focus (which line it stands on) must not move.
     state = _picker_state(["a", "b", "c"])
     state.osi.open_picker()
-    state.bump_value(-1)
+    focus = state.focus
+    state.move_next()
     assert state.osi.pick_index == 1
     assert state.osi.index == 0  # nothing chosen yet
+    assert state.focus == focus
+
+
+def test_up_moves_up_the_list():
+    state = _picker_state(["a", "b", "c"])
+    state.osi.open_picker()
+    state.move_next()
+    state.move_prev()
+    assert state.osi.pick_index == 0
+
+
+def test_left_and_right_do_nothing_while_the_list_is_open():
+    state = _picker_state(["a", "b", "c"])
+    state.osi.open_picker()
+    state.bump_value(+1)
+    state.bump_value(-1)
+    assert state.osi.pick_index == 0
+    assert state.osi.index == 0
+
+
+def test_enter_in_the_list_chooses_the_row_and_goes_back_to_the_form():
+    state = _picker_state(["a", "b", "c"])
+    state.osi.open_picker()
+    state.move_next()
+    assert state.activate() is None  # choosing never executes the form
+    assert state.osi.picking is False
+    assert state.osi.current().label == "b"
 
 
 def test_choosing_takes_the_highlighted_row_and_closes():
     state = _picker_state(["a", "b", "c"])
     state.osi.open_picker()
-    state.bump_value(-1)
+    state.move_next()
     state.osi.choose()
     assert state.osi.picking is False
     assert state.osi.current().label == "b"
@@ -279,7 +308,7 @@ def test_choosing_takes_the_highlighted_row_and_closes():
 def test_cancelling_the_picker_keeps_the_old_selection():
     state = _picker_state(["a", "b", "c"])
     state.osi.open_picker()
-    state.bump_value(-1)
+    state.move_next()
     state.osi.cancel_pick()
     assert state.osi.picking is False
     assert state.osi.current().label == "a"

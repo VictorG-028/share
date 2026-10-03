@@ -101,55 +101,113 @@ def test_without_fill_or_save_the_browser_is_never_touched(monkeypatch):
     assert main.cli(["--day", FRIDAY.isoformat()]) == main.EXIT_OK
 
 
-# ------------------------------------------------------------- tui trigger
+# --------------------------------------------------------- menu + screens
 
 
-def test_tui_triggers_with_no_real_args_and_a_real_terminal(monkeypatch):
+@pytest.fixture
+def _terminal(monkeypatch):
+    """A real terminal with no arguments: the one situation that opens the menu."""
     monkeypatch.setattr(sys, "argv", ["auto-appointment"])
     monkeypatch.setattr("sys.stdin.isatty", lambda: True)
-    monkeypatch.setattr(tui, "run_tui", lambda: ["--day", FRIDAY.isoformat()])
+    monkeypatch.setattr(main, "_cancelled_by_user", False)
+
+
+def _record_runs(monkeypatch) -> list[date]:
     seen: list[date] = []
     monkeypatch.setattr(main, "run", lambda d, s, **kw: seen.append(d) or None)
+    return seen
+
+
+def test_apontar_runs_the_form_and_then_the_cli_with_its_argv(monkeypatch, _terminal):
+    monkeypatch.setattr(tui, "run_menu", lambda: "apontar")
+    monkeypatch.setattr(tui, "run_tui", lambda: ["--day", FRIDAY.isoformat()])
+    seen = _record_runs(monkeypatch)
     main.cli()
-    assert seen == [FRIDAY]  # recursed into cli(built) with the TUI's argv
+    assert seen == [FRIDAY]  # recursed into cli(built) with the form's argv
 
 
-def test_tui_cancellation_is_nothing_to_do(monkeypatch):
-    monkeypatch.setattr(sys, "argv", ["auto-appointment"])
-    monkeypatch.setattr("sys.stdin.isatty", lambda: True)
+def test_atualizar_runs_the_refresh_screen_and_then_the_refresh(monkeypatch, _terminal):
+    monkeypatch.setattr(tui, "run_menu", lambda: "atualizar")
+    monkeypatch.setattr(tui, "run_refresh_tui", lambda: ["--fonte", "listagem"])
+    seen = {}
+    monkeypatch.setattr(main, "refresh_osi_list", lambda **kw: seen.update(kw) or main.EXIT_OK)
+    assert main.cli() == main.EXIT_OK
+    assert seen["source"] == "listagem"
+
+
+def test_atualizar_with_all_defaults_still_refreshes(monkeypatch, _terminal):
+    # An empty argv from the screen is a real answer ("every default"), not a cancel.
+    monkeypatch.setattr(tui, "run_menu", lambda: "atualizar")
+    monkeypatch.setattr(tui, "run_refresh_tui", lambda: [])
+    calls = []
+    monkeypatch.setattr(main, "refresh_osi_list", lambda **kw: calls.append(kw) or main.EXIT_OK)
+    assert main.cli() == main.EXIT_OK
+    assert len(calls) == 1
+
+
+def test_criar_osi_is_closed_in_the_menu_and_nothing_runs(monkeypatch, _terminal, capsys):
+    monkeypatch.setattr(tui, "run_menu", lambda: "criar")
+
+    def _boom(*_a, **_k):
+        raise AssertionError("Criar OSI nao pode executar a partir do menu")
+
+    monkeypatch.setattr(tui, "run_tui", _boom)
+    monkeypatch.setattr(tui, "run_refresh_tui", _boom)
+    monkeypatch.setattr("modules.osi_register.cli.run", _boom)
+    assert main.cli() == main.EXIT_NOTHING_TO_DO
+    assert "INTERDITADO" in capsys.readouterr().out
+    # The message was printed to be read: the final pause must still wait for it.
+    assert main._cancelled_by_user is False
+
+
+def test_closing_the_menu_is_nothing_to_do_and_skips_the_final_pause(monkeypatch, _terminal):
+    monkeypatch.setattr(tui, "run_menu", lambda: None)
+    assert main.cli() == main.EXIT_NOTHING_TO_DO
+    assert main._cancelled_by_user is True
+
+
+def test_cancelling_the_form_is_nothing_to_do_and_skips_the_final_pause(monkeypatch, _terminal):
+    monkeypatch.setattr(tui, "run_menu", lambda: "apontar")
     monkeypatch.setattr(tui, "run_tui", lambda: None)
     assert main.cli() == main.EXIT_NOTHING_TO_DO
+    assert main._cancelled_by_user is True
 
 
-def test_tui_does_not_trigger_with_real_args(monkeypatch):
+def test_the_register_flag_still_reaches_the_flow(monkeypatch):
+    # The menu closes Criar OSI; the flag is a separate door and stays open.
+    seen = {}
+    monkeypatch.setattr("modules.osi_register.cli.run", lambda **kw: seen.update(kw) or main.EXIT_OK)
+    assert main.cli(["--register-new-osi", "--port", "9333"]) == main.EXIT_OK
+    assert seen == {"port": 9333}
+
+
+def test_the_menu_does_not_open_with_real_args(monkeypatch):
     monkeypatch.setattr(sys, "argv", ["auto-appointment", "--day", FRIDAY.isoformat()])
     monkeypatch.setattr("sys.stdin.isatty", lambda: True)
 
     def _boom():
-        raise AssertionError("run_tui() nao deveria ser chamado com argv real")
+        raise AssertionError("run_menu() nao deveria ser chamado com argv real")
 
-    monkeypatch.setattr(tui, "run_tui", _boom)
-    seen: list[date] = []
-    monkeypatch.setattr(main, "run", lambda d, s, **kw: seen.append(d) or None)
+    monkeypatch.setattr(tui, "run_menu", _boom)
+    seen = _record_runs(monkeypatch)
     main.cli()
     assert seen == [FRIDAY]
 
 
-def test_tui_does_not_trigger_without_a_real_terminal(monkeypatch):
+def test_the_menu_does_not_open_without_a_real_terminal(monkeypatch):
     monkeypatch.setattr(sys, "argv", ["auto-appointment"])
     monkeypatch.setattr("sys.stdin.isatty", lambda: False)
 
     def _boom():
-        raise AssertionError("run_tui() nao deveria ser chamado sem tty")
+        raise AssertionError("run_menu() nao deveria ser chamado sem tty")
 
-    monkeypatch.setattr(tui, "run_tui", _boom)
-    seen: list[date] = []
-    monkeypatch.setattr(main, "run", lambda d, s, **kw: seen.append(d) or None)
+    monkeypatch.setattr(tui, "run_menu", _boom)
+    seen = _record_runs(monkeypatch)
     main.cli()
     assert seen == [YESTERDAY]
 
 
-def test_cli_of_empty_list_never_triggers_the_tui(monkeypatch):
+def test_cli_of_empty_list_never_opens_the_menu(monkeypatch):
     # The literal invariant: main.cli([]) must mean exactly what it means
     # today ("yesterday, dry mode"), regardless of real sys.argv/isatty --
     # see test_defaults_to_yesterday.
@@ -157,11 +215,10 @@ def test_cli_of_empty_list_never_triggers_the_tui(monkeypatch):
     monkeypatch.setattr("sys.stdin.isatty", lambda: True)
 
     def _boom():
-        raise AssertionError("run_tui() nao deveria ser chamado para cli([])")
+        raise AssertionError("run_menu() nao deveria ser chamado para cli([])")
 
-    monkeypatch.setattr(tui, "run_tui", _boom)
-    seen: list[date] = []
-    monkeypatch.setattr(main, "run", lambda d, s, **kw: seen.append(d) or None)
+    monkeypatch.setattr(tui, "run_menu", _boom)
+    seen = _record_runs(monkeypatch)
     main.cli([])
     assert seen == [YESTERDAY]
 
@@ -243,18 +300,15 @@ def test_the_confirmation_shows_the_whole_label_not_just_a_number():
 # ------------------------------------------------------- refresh the catalog
 
 
-def test_both_entry_points_share_the_same_refresh_options():
-    import refresh_osi_list as dedicated
-
-    for parser in (main.build_parser(), dedicated.build_parser()):
-        args = parser.parse_args(
-            ["--fonte", "ambas", "--incluir-feriado", "--incluir-fim-de-semana"]
-        )
-        assert (args.fonte, args.incluir_feriado, args.incluir_fim_de_semana) == (
-            "ambas",
-            True,
-            True,
-        )
+def test_the_refresh_options_parse():
+    args = main.build_parser().parse_args(
+        ["--fonte", "ambas", "--incluir-feriado", "--incluir-fim-de-semana"]
+    )
+    assert (args.fonte, args.incluir_feriado, args.incluir_fim_de_semana) == (
+        "ambas",
+        True,
+        True,
+    )
 
 
 def test_refresh_defaults_to_the_fast_source_and_workdays_only():

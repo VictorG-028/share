@@ -3,7 +3,7 @@
 import pytest
 
 from modules.browser.ssg_list_modal import match_row as _match
-from register_new_osi import build_parser
+from modules.osi_register.cli import build_parser
 
 ROWS = [
     "47721 / COE-TECH-SETEMBRO-2025 / coe tech - setembro- 2025",
@@ -19,6 +19,31 @@ def test_match_prefers_the_exact_row():
 def test_match_accepts_a_unique_substring_ignoring_case():
     assert _match(ROWS, "fasseconci") == 1
     assert _match(ROWS, "50212") == 2
+
+
+ACCENTED_ROWS = [
+    "OSI 83685 | Faturamento Assistencial SECONCI | Preparação Operação Assistida - 417487",
+    "OSI 83686 | Faturamento Assistencial SECONCI | Homologação End2End - 417488",
+]
+
+
+def test_match_accepts_a_selector_typed_without_accents():
+    assert _match(ACCENTED_ROWS, "preparacao operacao") == 0
+    assert _match(ACCENTED_ROWS, "HOMOLOGACAO") == 1
+
+
+def test_match_prefers_the_exact_accented_row():
+    assert _match(ACCENTED_ROWS, ACCENTED_ROWS[1]) == 1
+
+
+def test_match_refuses_an_ambiguity_found_only_without_accents():
+    with pytest.raises(ValueError):
+        _match(["Operação A", "Operação B"], "operacao")
+
+
+def test_a_literal_hit_beats_the_accent_insensitive_one():
+    # "operacao" is written exactly in the second row only, so that row wins.
+    assert _match(["Operação A", "Operacao B"], "operacao") == 1
 
 
 def test_match_refuses_an_ambiguous_substring():

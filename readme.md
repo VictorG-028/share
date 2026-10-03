@@ -13,17 +13,27 @@ navegador**. A geração usa o pattern GoF **Strategy**:
 ## Uso
 
 ```bash
-auto-appointment                          # gera para ONTEM e imprime
-auto-appointment --day 26/08/2026         # ou --day 2026-08-26
+auto-appointment                          # num terminal: abre o MENU (Apontar / Atualizar lista de OSI / Criar OSI)
+auto-appointment --day 26/08/2026         # ou --day 2026-08-26 (sem argumentos fora de um terminal: ONTEM, seco)
 auto-appointment --day 26/08/2026 --week  # segunda a sexta daquela semana
 auto-appointment --day 26/08/2026 --fill  # abre o browser, preenche e CONFERE
 auto-appointment --day 26/08/2026 --save  # grava no SSG (pergunta antes)
 auto-appointment --day 26/08/2026 --fill --osi "coe tech - setembro"   # escolhe a OSI por texto
 auto-appointment --refresh-osi-list       # lê a lista de OSI do site e atualiza o cache local
 auto-appointment --register-new-osi       # cadastra uma OSI nova (pergunta projeto/atividade, confirma antes)
-register-new-osi --list --project 49179   # só descobre atividades e períodos aceitos; não grava
-register-new-osi --project 49179 --activity "Coe Tech" --yes   # cria sem perguntar
 ```
+
+Há **um único executável**. Com duplo clique (ou `auto-appointment` sem
+argumentos num terminal) ele abre o menu inicial; "Criar OSI" aparece como
+**INTERDITADO** no menu (a flag `--register-new-osi` continua existindo).
+
+**Teclas (iguais em todas as telas):** `[CIMA] / [BAIXO]` mudam de linha;
+`[ESQ] / [DIR]` mudam o valor; `[ENTER] / [ESPACO]` avançam o valor (na linha da
+OSI abrem a lista, no menu abrem a operação) e, no **último botão**, executam e
+fecham; `[ESC] / [BACKSPACE] / [CTRL-C]` cancelam e fecham. O rodapé de cada
+tela diz, para a linha em foco, o que cada tecla faz (`MUDA` / `ABRE` /
+`EXECUTA`). Na tela Apontar, a linha **Ação** escolhe entre "Só preencher (não
+grava)" — o padrão — e "GRAVAR no SSG".
 
 **O padrão é seco:** sem `--fill` ou `--save`, nada abre o navegador e nada é
 gravado. `--save` mostra o que vai gravar e pede confirmação (`--yes` pula);
@@ -115,12 +125,13 @@ src/
     osi_register/
       window.py, description.py, effort.py   # peças puras: período aceito, descrição, esforço = 8/dia
       flow.py                      # o fluxo do formulário: prepare / discover_window / fill / submit
+      cli.py                       # o fluxo de console (--register-new-osi); sem executável próprio
     tui/
-      state.py, argv_builder.py, render.py   # grade interativa: estado puro, sem prompt_toolkit
-      app.py                       # único arquivo que importa prompt_toolkit
-  main.py                          # orquestrador + CLI
-  refresh_osi_list.py              # entry point do refresh-osi-list.exe (só --refresh-osi-list)
-  register_new_osi.py              # entry point do register-new-osi.exe (cadastrar OSI)
+      state.py, menu_state.py, refresh_state.py   # estado puro (menu, formulário, atualizar lista)
+      argv_builder.py, render.py, menu_render.py, refresh_render.py   # só texto/ANSI, sem prompt_toolkit
+      keys_legend.py               # o rodapé de teclas: [TECLA] / [TECLA] + MUDA/ABRE/EXECUTA, só ASCII
+      app.py                       # único arquivo que importa prompt_toolkit; mapa de teclas único
+  main.py                          # orquestrador + CLI + menu inicial (único entry point)
   test/{unit,integration,e2e}/
 doc/
   ROADMAP.md                       # estado de cada etapa e decisões por trás delas

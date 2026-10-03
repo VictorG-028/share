@@ -1,11 +1,14 @@
 """
-Entry point for creating a new OSI on the SSG site (``register-new-osi``).
+The console flow that creates a new OSI on the SSG site
+(``auto-appointment --register-new-osi``).
 
-Interactive by default: lists projects, asks which, probes every activity's
-accepted period (each probe is a save the site rejects on purpose), asks
-which activity, shows a summary and asks before the real "Gravar".
-``--project``/``--activity``/``--yes`` skip the questions; ``--list`` stops
-after the discovery and creates nothing.
+It has no executable of its own any more: the menu of the single
+``auto-appointment`` build shows "Criar OSI" as closed, and the flag is the
+only way in. Interactive by default: lists projects, asks which, probes every
+activity's accepted period (each probe is a save the site rejects on purpose),
+asks which activity, shows a summary and asks before the real "Gravar".
+``build_parser`` keeps the non-interactive options (``--project``,
+``--activity``, ``--yes``, ``--list``) for whoever calls ``run`` directly.
 """
 
 from __future__ import annotations
@@ -14,7 +17,6 @@ import argparse
 import sys
 from datetime import date
 
-from main import EXIT_ERROR, EXIT_NOTHING_TO_DO, EXIT_OK
 from modules.osi_register import ActivityWindow, default_description, flow
 
 _YES = {"s", "sim", "y", "yes"}
@@ -22,7 +24,7 @@ _YES = {"s", "sim", "y", "yes"}
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="register-new-osi",
+        prog="auto-appointment --register-new-osi",
         description=(
             "Cadastra uma OSI nova no SSG. Descobre o periodo aceito de cada "
             "atividade e so grava depois de mostrar o resumo e perguntar."
@@ -75,6 +77,9 @@ def run(
     assume_yes: bool = False,
     port: int | None = None,
 ) -> int:
+    # Lazy, like the browser stack: ``main`` imports this module (also lazily),
+    # so a top-level import back would be a cycle.
+    from main import EXIT_ERROR, EXIT_NOTHING_TO_DO, EXIT_OK
     from modules.browser.browsers import BrowserNotFound
     from modules.browser.cdp import CdpError
     from modules.browser.ssg_screen import SsgError, SsgLoginRequired
@@ -161,19 +166,3 @@ def cli(argv: list[str] | None = None) -> int:
         assume_yes=args.yes,
         port=args.port,
     )
-
-
-if __name__ == "__main__":
-    try:
-        exit_code = cli()
-    except Exception:
-        import traceback
-
-        traceback.print_exc()
-        exit_code = EXIT_ERROR
-    if getattr(sys, "frozen", False) and sys.stdin.isatty():
-        try:
-            input("\nPressione Enter para fechar...")
-        except EOFError:
-            pass
-    sys.exit(exit_code)

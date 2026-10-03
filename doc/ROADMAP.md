@@ -166,8 +166,10 @@ auto-appointment [--day DATA] [--week] [--strategy static|natural_random]
       `modules/osi_catalog/probe.py`; recon em
       `sysmap_ssg/pages/apontamento/`. A leitura da tabela de
       `#/osi/get-list` ficou documentada como alternativa não adotada
-- [x] **Cadastrar OSI nova** (2026-09-05): `register-new-osi` (3º `.exe`) e a
-      flag `--register-new-osi`. Fluxo na ordem do usuário na tela
+- [x] **Cadastrar OSI nova** (2026-09-05): a flag `--register-new-osi` (a
+      princípio também um 3º `.exe`, `register-new-osi`; desde 2026-10-03 há um
+      único executável e o menu mostra "Criar OSI" como interditado, a flag
+      continua aberta). Fluxo na ordem do usuário na tela
       `#/osi/get-form`; o período aceito de cada atividade só existe no
       alerta de recusa de um Gravar com datas ±1 ano (sondado: `POST
       osi/save` responde 200 com "Erro! O período permitido ... é de
@@ -234,14 +236,40 @@ monta a mesma lista de argv que já seria digitada e chama `cli()` normalmente
       nunca libera; amarelo = fim de semana/feriado, libera com Force; hoje
       nao bloqueia mais -- so exibe um aviso informativo e deixa o SSG
       decidir de verdade, ver `regra-so-apontar-passado` na memoria)
-- [x] Navegação só-pra-frente (Right avança e dá a volta; Left nunca troca de
-      linha) -- decisão explícita, não é um grid simétrico
+- [x] ~~Navegação só-pra-frente (Right avança e dá a volta; Left nunca troca de
+      linha)~~ -- **substituída em 2026-10-03**, ver "Revisão de usabilidade"
 - [x] Testado com `create_pipe_input()`/`DummyOutput` (sem terminal real) para
       a lógica de teclas; lógica pura (estado/argv/render) testada à parte,
       sem importar `prompt_toolkit`
 - [ ] Confirmação visual num terminal de verdade (PowerShell/cmd/duplo-clique)
       ainda depende do usuário -- os testes automatizados não têm como abrir um
       console Win32 de verdade
+
+### Revisão de usabilidade (2026-10-03) ✅ implementada
+
+A grade original era difícil de usar: ↑/↓ mudavam valor, → dava a volta para a
+próxima linha, ← nunca trocava de linha e Enter ora executava, ora abria a
+lista da OSI; o rodapé listava teclas sem dizer o efeito. Mudou:
+
+- [x] **Um executável só.** `refresh-osi-list.exe` e `register-new-osi.exe`
+      deixaram de existir; sem argumentos, `auto-appointment` abre um **menu**
+      (Apontar / Atualizar lista de OSI / Criar OSI). Todas as operações
+      continuam disponíveis como flag.
+- [x] **Criar OSI interditado no menu** (mensagem e Enter fecha). A flag
+      `--register-new-osi` continua aberta -- escolha explícita.
+- [x] **Um mapa de teclas, um significado por tecla** (`app._key_bindings`):
+      ↑/↓ mudam de linha, ←/→ mudam o valor, Enter = Espaço = "avançar" (valor,
+      abrir a lista, abrir o item) e **só o último botão executa**;
+      Esc/Backspace/Ctrl-C cancelam. Formulário em lista vertical plana.
+- [x] **Linha "Ação"** no lugar do Salvar Y/N: "Só preencher (não grava)" é o
+      padrão; "GRAVAR no SSG" renomeia o botão final.
+- [x] **Rodapé por linha em foco** (`keys_legend.py`): `[TECLA] / [TECLA]` +
+      `MUDA`/`ABRE`/`EXECUTA`, **só ASCII** (setas por extenso: o glifo depende
+      da fonte do console, não só do encoding).
+- [x] Cancelar uma tela fecha na hora; a pausa final "Concluido. Pressione
+      Enter para fechar." só aparece quando algo foi impresso para ler.
+- [ ] Conferência visual num console de verdade (cmd/PowerShell/duplo clique)
+      continua dependendo do usuário.
 
 Dependência nova: `prompt_toolkit` (+ `wcwidth`). Aumenta o bundle do `.exe`
 de propósito -- ver decisão registrada na memória do projeto

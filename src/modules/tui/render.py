@@ -2,11 +2,16 @@
 Pure text rendering for the grid form -- no ``prompt_toolkit`` import, raw
 ANSI only (no color library), so output is assertable with plain ``in``
 checks in tests.
+
+Everything the form itself draws is ASCII (see ``keys_legend`` for why); only
+the OSI labels, which come from the site, may carry accents.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
+
+from modules.tui.keys_legend import OSI, PICKER, RUN, VALUE, legend
 
 if TYPE_CHECKING:
     from modules.tui.state import FormState
@@ -16,18 +21,25 @@ YELLOW = "\033[33m"
 RESET = "\033[0m"
 REVERSE = "\033[7m"
 
-_FALLBACK_HINT = "(lista nao capturada -- rode --refresh-osi-list)"
-_KEYS_FORM = (
-    "setas: navegar/mudar valores  Espaco/Tab/Enter na OSI: lista  "
-    "Enter: confirmar  Esc/Ctrl-C: cancelar"
-)
-_KEYS_PICKER = "setas: navegar  Espaco/Enter: escolher  Tab/Esc: voltar sem mudar"
+_FALLBACK_HINT = "(lista nao capturada -- use 'Atualizar lista de OSI' no menu)"
+
+#: What the "Acao" line says and what the final button is called for each --
+#: the button names the consequence, so pressing it is never a surprise.
+ACTION_FILL = "So preencher (nao grava)"
+ACTION_SAVE = "GRAVAR no SSG"
+BUTTON_FILL = "[ PREENCHER no site (nao grava) ]"
+BUTTON_SAVE = "[ GRAVAR no SSG ]"
+#: Kept short: with the key column they must fit an 80-column console.
+RUN_EFFECT_FILL = "PREENCHER, sem gravar, e fechar"
+RUN_EFFECT_SAVE = "GRAVAR e fechar, sem outra pergunta"
 
 #: How many rows of the list are on screen at once, and how wide a label may
 #: get before it is cut. Both are about a default Windows console, which is
 #: where the .exe actually runs.
 PICKER_ROWS = 12
 LABEL_WIDTH = 110
+
+_LABEL_COLUMN = 7  # "Force" + room: the values line up in one column
 
 
 def _focused(text: str, *, is_focused: bool) -> str:
@@ -36,6 +48,12 @@ def _focused(text: str, *, is_focused: bool) -> str:
 
 def _ellipsize(text: str, limit: int = LABEL_WIDTH) -> str:
     return text if len(text) <= limit else text[: limit - 3] + "..."
+
+
+def _row(label: str, value: str, *, is_focused: bool, width: int = _LABEL_COLUMN) -> str:
+    """``> Label    value`` -- the marker survives consoles that drop reverse video."""
+    marker = ">" if is_focused else " "
+    return f"{marker} {label:<{width}} {value}"
 
 
 def render_picker(state: "FormState") -> str:
@@ -51,7 +69,7 @@ def render_picker(state: "FormState") -> str:
         index = start + offset
         marker = ">" if index == cursor else " "
         lines.append(f"{marker} {_focused(_ellipsize(entry.label), is_focused=index == cursor)}")
-    lines += ["", _KEYS_PICKER]
+    lines += ["", legend(PICKER)]
     return "\n".join(lines)
 
 
@@ -60,37 +78,59 @@ def render_text(state: "FormState") -> str:
         return render_picker(state)
 
     d = state.date
-    on_row0 = state.row == 0
+    name = state.focus_name()
 
-    day = _focused(f"{d.day:02d}", is_focused=on_row0 and state.field == 0)
-    month = _focused(f"{d.month:02d}", is_focused=on_row0 and state.field == 1)
-    year = _focused(f"{d.year:04d}", is_focused=on_row0 and state.field == 2)
-    force_text = "ON" if d.force else "OFF"
-    force = _focused(f"Force: {force_text}", is_focused=on_row0 and state.field == 3)
+    def on(field: str) -> bool:
+        return name == field
 
-    date_line = f"{d.weekday_name()}   {day} / {month} / {year}   {force}"
-
-    status = d.status()
-    status_line = ""
-    if status.message:
-        color = {"red": RED, "yellow": YELLOW}.get(status.color, "")
-        status_line = f"{color}{status.message}{RESET}"
+    day = _row(
+        "Dia",
+        f"{_focused(f'{d.day:02d}', is_focused=on('day'))}   {d.weekday_name()}",
+        is_focused=on("day"),
+    )
+    month = _row("Mes", _focused(f"{d.month:02d}", is_focused=on("month")), is_focused=on("month"))
+    year = _row("Ano", _focused(f"{d.year:04d}", is_focused=on("year")), is_focused=on("year"))
+    force = _row(
+        "Force",
+        _focused("ON" if d.force else "OFF", is_focused=on("force")),
+        is_focused=on("force"),
+    )
 
     chosen = state.osi.current()
     if chosen is None:
-        osi_line = f"Projeto (OSI): {RED}nenhuma{RESET}\n  {_FALLBACK_HINT}"
+        osi_value = f"{RED}nenhuma{RESET}\n  {_FALLBACK_HINT}"
     else:
-        osi_text = _focused(_ellipsize(chosen.label), is_focused=state.row == 1)
-        osi_line = f"Projeto (OSI): {osi_text}"
+        osi_value = _focused(_ellipsize(chosen.label), is_focused=on("osi"))
         if state.osi.is_fallback:
-            osi_line += f"\n  {_FALLBACK_HINT}"
+            osi_value += f"\n  {_FALLBACK_HINT}"
+    osi = _row("OSI", osi_value, is_focused=on("osi"))
 
-    save_choice = "[Y] / N" if state.save else "Y / [N]"
-    save_text = _focused(save_choice, is_focused=state.row == 2)
-    save_line = f"Salvar? {save_text}"
+    action_text = ACTION_SAVE if state.save else ACTION_FILL
+    action = _row("Acao", _focused(action_text, is_focused=on("action")), is_focused=on("action"))
 
-    lines = [date_line]
-    if status_line:
-        lines.append(status_line)
-    lines += ["", osi_line, "", save_line, "", _KEYS_FORM]
+    button_text = BUTTON_SAVE if state.save else BUTTON_FILL
+    button_color = RED if state.save else ""
+    button = _focused(f"{button_color}{button_text}{RESET if button_color else ''}", is_focused=on("run"))
+    run = f"{'>' if on('run') else ' '} {button}"
+
+    lines = ["Apontar", "", day, month, year, force]
+    status = d.status()
+    # A blocked day is reported once, next to the button that it blocks; the
+    # note under the date is only for what does not block (today's heads-up).
+    if status.message and not status.blocked:
+        lines.append(f"  {status.message}")
+    lines += [osi, action, "", run]
+    reason = state.block_reason()
+    if reason:
+        color = {"red": RED, "yellow": YELLOW}.get(status.color if status.blocked else "red", RED)
+        lines.append(f"  {color}Bloqueado: {reason}{RESET}")
+
+    if on("run"):
+        mode = RUN
+    elif on("osi"):
+        mode = OSI
+    else:
+        mode = VALUE
+    run_effect = RUN_EFFECT_SAVE if state.save else RUN_EFFECT_FILL
+    lines += ["", legend(mode, run_effect=run_effect)]
     return "\n".join(lines)

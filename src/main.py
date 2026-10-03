@@ -196,7 +196,8 @@ def punch(
     if not selector:
         print(
             "Nenhuma OSI escolhida e nenhuma usada antes. "
-            "Rode refresh-osi-list e escolha na tela, ou passe --osi."
+            "Use 'Atualizar lista de OSI' no menu (ou --refresh-osi-list) e "
+            "escolha na tela, ou passe --osi."
         )
         return EXIT_ERROR
 
@@ -236,12 +237,10 @@ def punch(
 
 def add_refresh_arguments(parser: argparse.ArgumentParser) -> None:
     """
-    The options that shape a catalog refresh, shared by both entry points.
+    The options that shape a catalog refresh.
 
-    Defined once and added to both parsers so ``auto-appointment
-    --refresh-osi-list`` and the dedicated ``refresh-osi-list`` executable
-    cannot drift apart -- the second exists only so the action is a
-    double-click, not so it can do more.
+    Defined once so the parser and the "Atualizar lista de OSI" screen (whose
+    ``build_refresh_argv`` emits exactly these flags) cannot drift apart.
     """
     parser.add_argument(
         "--fonte",
@@ -333,8 +332,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help=(
             "cadastra uma OSI nova, perguntando projeto e atividade e "
-            "confirmando antes de gravar; ignora as outras flags "
-            "(o comando register-new-osi tem as opcoes nao interativas)"
+            "confirmando antes de gravar; ignora as outras flags"
         ),
     )
     return parser
@@ -394,15 +392,47 @@ def _report_catalog(result) -> None:
         print(f"  (fonte '{name}' veio pela tela, nao pelo endpoint)")
 
 
+#: Set when the user backed out of a screen (Esc/Backspace/Ctrl-C). Cancelling
+#: is "close", so ``__main__`` must not then ask for an Enter to close.
+_cancelled_by_user = False
+
+CREATE_OSI_CLOSED = (
+    "Criar OSI esta INTERDITADO neste programa.\n"
+    "Nada foi feito no SSG."
+)
+
+
+def _interactive() -> int:
+    """The start menu, then the screen of the operation it picked."""
+    global _cancelled_by_user
+    from modules.tui import run_menu, run_refresh_tui, run_tui
+    from modules.tui.menu_state import APONTAR, ATUALIZAR, CRIAR
+
+    choice = run_menu()
+    if choice == CRIAR:
+        print(CREATE_OSI_CLOSED)
+        return EXIT_NOTHING_TO_DO
+    if choice == APONTAR:
+        built = run_tui()
+        prefix: list[str] = []
+    elif choice == ATUALIZAR:
+        built = run_refresh_tui()
+        prefix = ["--refresh-osi-list"]
+    else:  # closed the menu
+        built = None
+    if built is None:
+        _cancelled_by_user = True
+        return EXIT_NOTHING_TO_DO
+    return cli(prefix + built)
+
+
 def cli(argv: list[str] | None = None) -> int:
     """Entry point. Returns an exit code; see EXIT_* above."""
+    # The gate is ``argv is None`` *here*, not an ``if __name__`` block: the
+    # installed console script's dunder-main is the stub's, and an explicit
+    # ``cli([])`` must keep meaning "yesterday, dry" whatever sys.argv says.
     if argv is None and len(sys.argv) == 1 and sys.stdin.isatty():
-        from modules.tui import run_tui
-
-        built = run_tui()
-        if built is None:
-            return EXIT_NOTHING_TO_DO
-        return cli(built)
+        return _interactive()
 
     args = build_parser().parse_args(argv)
     if args.refresh_osi_list:
@@ -413,7 +443,7 @@ def cli(argv: list[str] | None = None) -> int:
             source=args.fonte,
         )
     if args.register_new_osi:
-        from register_new_osi import run as register_new_osi
+        from modules.osi_register.cli import run as register_new_osi
 
         return register_new_osi(port=args.port)
     target_day = args.day or (date.today() - timedelta(days=1))
@@ -452,9 +482,10 @@ if __name__ == "__main__":
 
         traceback.print_exc()
         exit_code = 1
-    if getattr(sys, "frozen", False) and sys.stdin.isatty():
+    # Backing out of a screen is already "close": nothing was printed to read.
+    if getattr(sys, "frozen", False) and sys.stdin.isatty() and not _cancelled_by_user:
         try:
-            input("\nPressione Enter para fechar...")
+            input("\nConcluido. Pressione Enter para fechar.")
         except EOFError:
             pass
     sys.exit(exit_code)

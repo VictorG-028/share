@@ -1,9 +1,9 @@
 """
 State of the refresh screen: which source to read, and what counts as a day.
 
-Pure, like :mod:`modules.tui.state` -- no ``prompt_toolkit`` here. The screen
-exists because ``refresh-osi-list`` is meant to be double-clicked, and a flag
-you cannot type is a flag you do not have.
+Pure, like :mod:`modules.tui.state` -- no ``prompt_toolkit`` here. Same keys as
+the appointment form: Up/Down change the line, Left/Right change the value,
+Enter/Space go "forward" (the same as Right) and, on the last button, execute.
 """
 
 from __future__ import annotations
@@ -20,10 +20,8 @@ SOURCE_HINTS = {
     "ambas": "rotulo real e status na mesma passada",
 }
 
-ROWS: tuple[tuple[str, ...], ...] = (
-    ("fonte",),
-    ("feriado", "fim_de_semana"),
-)
+#: One field per line, top to bottom.
+ROWS: tuple[str, ...] = ("fonte", "feriado", "fim_de_semana", "run")
 
 
 @dataclass
@@ -42,13 +40,12 @@ class SourceSpinner:
 
 @dataclass
 class RefreshFormState:
-    """The whole screen: a spinner and two toggles."""
+    """The whole screen: a spinner, two toggles and the button."""
 
     source: SourceSpinner = field(default_factory=SourceSpinner)
     include_holidays: bool = False
     include_weekends: bool = False
-    row: int = 0
-    field: int = 0
+    focus: int = 0
 
     @classmethod
     def initial(cls) -> "RefreshFormState":
@@ -56,19 +53,20 @@ class RefreshFormState:
         return cls(source=SourceSpinner(index=index))
 
     def focus_name(self) -> str:
-        return ROWS[self.row][self.field]
+        return ROWS[self.focus]
 
-    def move_right(self) -> None:
-        if self.field + 1 < len(ROWS[self.row]):
-            self.field += 1
-        else:
-            self.row = (self.row + 1) % len(ROWS)
-            self.field = 0
+    def move_next(self) -> None:
+        self.focus = (self.focus + 1) % len(ROWS)
 
-    def move_left(self) -> None:
-        # Same one-directional navigation as the appointment form: Right
-        # always advances (wrapping), Left just steps back within the row.
-        self.field = max(0, self.field - 1)
+    def move_prev(self) -> None:
+        self.focus = (self.focus - 1) % len(ROWS)
+
+    def activate(self) -> list[str] | None:
+        """Enter/Space: the argv on the button, otherwise a value moves forward."""
+        if self.focus_name() == "run":
+            return self.try_submit()
+        self.bump_value(+1)
+        return None
 
     def bump_value(self, delta: int) -> None:
         name = self.focus_name()
