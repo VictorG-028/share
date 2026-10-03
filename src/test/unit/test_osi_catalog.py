@@ -1,3 +1,4 @@
+import json
 from datetime import date
 
 import pytest
@@ -37,6 +38,39 @@ def test_save_then_load_catalog_round_trips(files):
     ]
     cache.save_catalog(entries)
     assert cache.load_catalog() == entries
+
+
+ACCENTED = "OSI 83685 | Faturamento Assistencial SECONCI | Preparação Operação Assistida - 417487"
+
+
+def test_accents_survive_the_catalog_round_trip(files):
+    catalog, _ = files
+    entries = [OsiEntry.from_label(ACCENTED)]
+    cache.save_catalog(entries)
+    assert "Preparação" in catalog.read_text(encoding="utf-8")
+    assert cache.load_catalog() == entries
+
+
+def test_save_refuses_a_label_that_lost_a_letter(files):
+    catalog, _ = files
+    with pytest.raises(ValueError):
+        cache.save_catalog([OsiEntry.from_label("OSI 1 | P | Prepara��o - 1")])
+    assert not catalog.exists()
+
+
+def test_load_drops_a_corrupted_label_and_says_to_refresh(files):
+    # The shape of the real osi_catalog.json captured on 2026-09-30.
+    catalog, _ = files
+    catalog.write_text(
+        json.dumps(
+            {"entries": [{"label": "OSI 83685 | P | Prepara��o - 1"}, {"label": ACCENTED}]},
+            ensure_ascii=False,
+        ),
+        encoding="utf-8",
+    )
+    with pytest.warns(UserWarning, match="refresh-osi-list"):
+        entries = cache.load_catalog()
+    assert [e.label for e in entries] == [ACCENTED]
 
 
 def test_load_last_used_missing_file_is_none(files):

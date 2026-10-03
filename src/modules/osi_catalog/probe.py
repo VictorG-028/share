@@ -76,7 +76,7 @@ def refresh_catalog(
         raise ValueError(f"fonte desconhecida: {source!r} (use uma de {SOURCES})")
 
     controller = SsgController(port=port or DEFAULT_PORT)
-    result = RefreshResult(entries=load_catalog(), sources=dict(load_meta()))
+    result = RefreshResult(entries=load_catalog(warn=False), sources=dict(load_meta()))
     try:
         controller.open()
         user_name = ssg_api.logged_user(controller.page)

@@ -134,6 +134,22 @@ def test_records_that_are_not_objects_are_dropped():
     assert ssg_api.osi_records(page, user_name=USER) == [{"Id": "1"}]
 
 
+def test_accented_labels_come_through_untouched():
+    label = "OSI 83685 | Faturamento Assistencial SECONCI | Preparação Operação Assistida - 417487"
+    page = _FakePage({**OK, "ReturnObject": [label]})
+    assert ssg_api.osi_labels_for(page, date(2026, 9, 30), user_name=USER) == [label]
+
+
+def test_a_replacement_character_is_refused_so_the_screen_is_read_instead():
+    # The catalog of 2026-09-30 held "Prepara��o": the letter is gone,
+    # and a label like that never matches the site's row.
+    page = _FakePage({**OK, "ReturnObject": ["OSI 1 | P | Prepara��o - 1"]})
+    with pytest.raises(ssg_api.SsgApiUnavailable):
+        ssg_api.osi_labels_for(page, date(2026, 9, 30), user_name=USER)
+    with pytest.raises(ssg_api.SsgApiUnavailable):
+        ssg_api.osi_records(page, user_name=USER)
+
+
 def test_the_professional_is_taken_from_the_first_field_that_has_a_value():
     # More than one view of the SPA carries the class, and the stale one is
     # empty right after a route change.

@@ -18,12 +18,14 @@ listing is the only place any status or validity window does.
 from __future__ import annotations
 
 import json
+import warnings
 from dataclasses import replace
 from datetime import date, datetime
 from pathlib import Path
 
 from modules.osi_catalog.entry import (
     NUMBER_NOT_CAPTURED,
+    REPLACEMENT_CHAR,
     SOURCE_LISTING,
     SOURCE_TIMESHEET,
     OsiEntry,
@@ -49,9 +51,12 @@ def _as_date(value: object) -> date | None:
         return None
 
 
-def load_catalog() -> list[OsiEntry]:
+def load_catalog(*, warn: bool = True) -> list[OsiEntry]:
     """
     The cached catalog, or ``[]`` if it was never captured or is corrupt.
+
+    ``warn=False`` is for the refresh itself, which is about to replace what it
+    drops -- telling it to "run --refresh-osi-list" there would be absurd.
 
     Unlike ``browsers.remembered()`` (which returns ``None`` for "nothing
     yet"), a list consumer's natural "nothing" is an empty list -- callers
@@ -63,7 +68,7 @@ def load_catalog() -> list[OsiEntry]:
     try:
         with open(path, encoding="utf-8") as handle:
             payload = json.load(handle)
-        return [
+        entries = [
             # ``label`` is the identity and must be there; everything else is a
             # trace, and a file written by an older build carries none of it --
             # such an entry is exactly a timesheet-sourced one with no status.
@@ -80,6 +85,17 @@ def load_catalog() -> list[OsiEntry]:
     except (OSError, json.JSONDecodeError, KeyError, TypeError):
         return []
 
+    # A label with U+FFFD lost a letter on capture (see ``REPLACEMENT_CHAR``) and
+    # can never match the site's row; offering it only leads to a failed punch.
+    intact = [entry for entry in entries if REPLACEMENT_CHAR not in entry.label]
+    if warn and len(intact) != len(entries):
+        warnings.warn(
+            f"{len(entries) - len(intact)} OSI do catalogo foram descartadas por terem "
+            "caracteres ilegiveis; rode --refresh-osi-list para recapturar.",
+            stacklevel=2,
+        )
+    return intact
+
 
 def load_meta() -> dict:
     """Per-source capture info, for a human judging staleness. ``{}`` if none."""
@@ -95,6 +111,9 @@ def load_meta() -> dict:
 
 def save_catalog(entries: list[OsiEntry], *, sources: dict | None = None) -> None:
     """Overwrite the cache. ``captured_at`` lets a human judge staleness."""
+    garbled = [e.label for e in entries if REPLACEMENT_CHAR in e.label]
+    if garbled:
+        raise ValueError(f"rotulo com caractere ilegivel (U+FFFD), nada foi gravado: {garbled[0]!r}")
     payload = {
         "captured_at": datetime.now().isoformat(timespec="seconds"),
         "sources": sources or {},

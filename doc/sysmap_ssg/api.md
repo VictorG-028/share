@@ -68,6 +68,36 @@ Toda chamada responde HTTP 200 com um envelope; o dado está em `ReturnObject`.
 Confirmado com token falso: `INVALID_TOKEN_3` / *"A sessão do usuário é
 inválida!"* / `ReturnObject: null`.
 
+### Charset: a resposta é Windows-1252, a página é UTF-8
+
+Medido em 2026-10-02: `Content-Type: text/json; charset=Windows-1252` (o
+`document.characterSet` da página é UTF-8). O cabeçalho é **verdadeiro** — os
+bytes são cp1252 de verdade (`ç` = `E7`, `ã` = `E3`).
+
+`fetch().text()` **ignora** o charset e lê sempre UTF-8, então cada letra
+acentuada virava `U+FFFD` (um por letra: `Prepara��o Opera��o`) e a
+informação se perdia antes de chegar ao `osi_catalog.json`. O jQuery/XHR do
+site respeita o cabeçalho, por isso as telas e o modal "?" sempre mostraram o
+texto certo. `CdpPage.fetch_json` agora traz os bytes crus (base64) e
+`modules/browser/body_text.decode_body` decodifica pelo charset declarado.
+
+Rede de segurança: um `ReturnObject` com `U+FFFD` levanta `SsgApiUnavailable`
+(cai para a tela, que o navegador decodifica certo) e o catálogo recusa gravar
+ou ler um rótulo assim.
+
+### Pendência conhecida: `userName` acentuado no **envio**
+
+Mandamos `userName` em UTF-8 (`quote()` no GET, `URLSearchParams` no POST) —
+os mesmos bytes que o jQuery da página manda (`encodeURIComponent`). Mantido de
+propósito: não há como verificar sem um nome acentuado real, e um nome em
+cp1252 faria o nosso pedido diferir do da própria página. O risco: um
+profissional com acento no nome (`José`, `Conceição`) poderia receber **lista
+vazia com sucesso** (o endpoint não erra para profissional desconhecido). Os
+nomes que o site devolveu até hoje vêm sem acento. **Gatilho para reabrir:**
+alguém com acento no nome recebe lista vazia pela API enquanto o "?" do site
+lista itens — então tentar `%E9`-style (cp1252) como *fallback* depois do
+UTF-8, nunca como primeira opção.
+
 ## `timesheet-recording/get-osi-project-activity-by-term` (GET)
 
 A lista que o botão "?" do campo de OSI mostra — o mesmo endpoint do

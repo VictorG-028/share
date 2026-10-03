@@ -35,6 +35,7 @@ from urllib.parse import quote
 
 from modules.browser.cdp import CdpError, CdpPage
 from modules.browser.ssg_screen import SsgError, SsgLoginRequired
+from modules.osi_catalog.entry import REPLACEMENT_CHAR
 
 __all__ = [
     "SsgApiUnavailable",
@@ -126,6 +127,14 @@ def _unwrap(payload: Any, *, what: str) -> list[Any]:
         return []
     if not isinstance(items, list):
         raise SsgApiUnavailable(f"{what}: ReturnObject nao e uma lista ({type(items).__name__})")
+    # A replacement character means the text was decoded with the wrong charset
+    # and the letter is already lost. Storing it would make the label unmatchable
+    # on the site, so refuse: the caller falls back to the screen, which the
+    # browser decodes correctly.
+    if REPLACEMENT_CHAR in json.dumps(items, ensure_ascii=False):
+        raise SsgApiUnavailable(
+            f"{what}: a resposta traz caracteres ilegiveis (U+FFFD) -- charset lido errado."
+        )
     return items
 
 

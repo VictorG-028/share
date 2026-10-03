@@ -20,6 +20,11 @@ _LABEL_NUMBER = re.compile(r"^OSI\s+(\d+)\s*\|")
 #: anywhere; picking an OSI goes by ``label``.
 NUMBER_NOT_CAPTURED = "NÃO CAPTURADO"
 
+#: ``U+FFFD``: what a decoder writes for bytes it could not read. In a label it
+#: means a letter was lost on the way in (the site's ``Windows-1252`` answer
+#: read as UTF-8, 2026-10-02), and such a label can never match the site's row.
+REPLACEMENT_CHAR = "�"
+
 #: Where an entry came from. The two sources see different things, so an entry
 #: has to say which one it is: only the timesheet list knows the OSIs a manager
 #: opened for the team, and only the listing knows any status at all.

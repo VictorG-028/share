@@ -29,6 +29,8 @@ from typing import Any
 
 import websocket
 
+from modules.browser.body_text import decode_body
+
 DEFAULT_PORT = 9222
 _RECV_TIMEOUT_SECONDS = 30
 
@@ -383,8 +385,13 @@ class CdpPage:
                 if form is not None
                 else ""
             )
-            + " }); const text = await r.text();"
-            " return JSON.stringify({status: r.status, body: text}); })()"
+            # Raw bytes, not ``r.text()``: that always reads UTF-8 and ignores
+            # the charset the server declares (see ``body_text``).
+            + " }); const bytes = new Uint8Array(await r.arrayBuffer()); let bin = '';"
+            " for (let i = 0; i < bytes.length; i += 0x8000)"
+            " bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));"
+            " return JSON.stringify({status: r.status,"
+            " contentType: r.headers.get('content-type') || '', body: btoa(bin)}); })()"
         )
         previous = self._ws.gettimeout()
         try:
@@ -398,10 +405,11 @@ class CdpPage:
         payload = json.loads(raw)
         if payload["status"] != 200:
             raise CdpError(f"{method} {url} respondeu HTTP {payload['status']}")
+        text = decode_body(base64.b64decode(payload["body"]), payload.get("contentType"))
         try:
-            return json.loads(payload["body"])
+            return json.loads(text)
         except json.JSONDecodeError as error:
-            raise CdpError(f"{method} {url} nao respondeu JSON: {payload['body'][:200]!r}") from error
+            raise CdpError(f"{method} {url} nao respondeu JSON: {text[:200]!r}") from error
 
     def screenshot(self, path: str) -> None:
         data = self.send("Page.captureScreenshot", {"format": "png"})["data"]

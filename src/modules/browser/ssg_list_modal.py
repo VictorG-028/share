@@ -11,6 +11,7 @@ its rows arrive by AJAX after the modal is already visible, and each row's
 from __future__ import annotations
 
 import time as _time
+import unicodedata
 
 from modules.browser.cdp import CdpPage, ElementNotFound
 from modules.browser.ssg_screen import SsgError
@@ -127,17 +128,28 @@ def _frozen_hint(page: CdpPage) -> str:
 
 def match_row(rows: list[str], selector: str) -> int:
     """
-    Index of ``selector`` in ``rows``: exact first, then a unique substring.
+    Index of ``selector`` in ``rows``: exact, then a unique substring ignoring
+    case, then a unique substring ignoring case **and accents**.
 
-    Ambiguity raises instead of picking one -- on a timekeeping site the wrong
+    The last rung lets ``--osi "preparacao operacao"`` find ``Preparação
+    Operação`` (a Windows terminal makes accents awkward to type). Ambiguity at
+    any rung raises instead of picking one -- on a timekeeping site the wrong
     row is worse than no row. Both screens that select from this widget go
     through here, so "how a label is matched" has one definition.
     """
     if selector in rows:
         return rows.index(selector)
-    hits = [i for i, row in enumerate(rows) if selector.lower() in row.lower()]
-    if len(hits) == 1:
-        return hits[0]
-    if not hits:
-        raise ValueError(f"{selector!r} nao esta entre as opcoes: {rows}")
-    raise ValueError(f"{selector!r} e ambiguo entre: {[rows[i] for i in hits]}")
+    for fold in (str.lower, _fold_accents):
+        wanted = fold(selector)
+        hits = [i for i, row in enumerate(rows) if wanted in fold(row)]
+        if len(hits) == 1:
+            return hits[0]
+        if len(hits) > 1:
+            raise ValueError(f"{selector!r} e ambiguo entre: {[rows[i] for i in hits]}")
+    raise ValueError(f"{selector!r} nao esta entre as opcoes: {rows}")
+
+
+def _fold_accents(text: str) -> str:
+    """Lower-case and drop combining marks: ``Operação`` -> ``operacao``."""
+    decomposed = unicodedata.normalize("NFKD", text.lower())
+    return "".join(char for char in decomposed if not unicodedata.combining(char))
