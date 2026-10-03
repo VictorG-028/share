@@ -142,6 +142,14 @@ def test_the_focused_line_has_the_marker_and_the_value_is_reverse_video():
     assert len(marked) == 1 and marked[0].startswith("> Fonte")
 
 
+@pytest.mark.parametrize("name", ROWS)
+def test_the_legend_is_set_apart_from_the_form_by_two_blank_lines(name):
+    lines = render_refresh(_focus(RefreshFormState.initial(), name)).splitlines()
+    first = next(i for i, line in enumerate(lines) if "[ENTER]" in line)
+    assert lines[first - 2 : first] == ["", ""]
+    assert lines[first - 3] != ""
+
+
 def test_the_footer_follows_the_focus_and_the_whole_screen_is_ascii():
     state = RefreshFormState.initial()
     assert "MUDA o valor para frente" in render_refresh(state)

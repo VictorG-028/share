@@ -56,6 +56,48 @@ def _run(state: FormState, keys: str):
         return app.run()
 
 
+# ------------------------------------------------------------ response time
+
+
+def test_the_screens_redraw_at_once_and_a_lone_escape_does_not_wait_half_a_second():
+    # Measured on a real ConPTY (2026-10-03): the library defaults put a 10 ms
+    # floor under every keypress and made a lone Esc take 560 ms.
+    from modules.tui.app import ESC_TIMEOUT, build_menu_application, build_refresh_application
+    from modules.tui.menu_state import MenuState
+    from modules.tui.refresh_state import RefreshFormState
+
+    apps = [
+        build_application(_state(PAST_WEEKDAY), output=DummyOutput()),
+        build_refresh_application(RefreshFormState.initial(), output=DummyOutput()),
+        build_menu_application(MenuState(), output=DummyOutput()),
+    ]
+    for app in apps:
+        assert app.max_render_postpone_time is None
+        assert app.ttimeoutlen == ESC_TIMEOUT
+    assert ESC_TIMEOUT <= 0.1
+
+
+def test_changing_the_date_does_not_hit_the_network_once_the_year_is_known(monkeypatch):
+    # The lag when changing a day/month/year was a holiday lookup per new date.
+    # Real service here (not the autouse stub), with the network replaced by a
+    # counter: stepping across many days of one year may ask for it only once.
+    from modules.holiday import service
+
+    asked = []
+    monkeypatch.setattr(main, "is_holiday", service.is_holiday)
+    monkeypatch.setattr(service, "_memo", {})
+    monkeypatch.setattr(service, "_network_failed", set())
+    monkeypatch.setattr(service, "_read_cache", lambda year: None)
+    monkeypatch.setattr(service, "_write_cache", lambda year, days: None)
+    monkeypatch.setattr(
+        service, "_fetch_from_api", lambda year: asked.append(year) or {date(year, 9, 7)}
+    )
+
+    state = _state(date(2026, 5, 29))
+    _run(state, LEFT * 8 + CTRL_C)  # eight different past weekdays/weekends
+    assert asked == [2026]
+
+
 # ------------------------------------------------------ Enter only executes last
 
 

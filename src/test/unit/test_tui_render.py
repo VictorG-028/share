@@ -122,6 +122,25 @@ def test_choosing_to_save_renames_the_button_and_paints_it_red():
 # ------------------------------------------------------------------ footer
 
 
+def _blank_lines_above_the_legend(text: str) -> int:
+    lines = text.splitlines()
+    first = next(i for i, line in enumerate(lines) if "[ENTER]" in line)
+    count = 0
+    while first - 1 - count >= 0 and lines[first - 1 - count] == "":
+        count += 1
+    return count
+
+
+@pytest.mark.parametrize("name", ROWS)
+def test_the_key_legend_is_set_apart_from_the_form_by_two_blank_lines(name):
+    # With one blank line the legend read as more fields of the form.
+    assert _blank_lines_above_the_legend(render_text(_focus(_state(PAST_WEEKDAY), name))) == 2
+
+
+def test_the_overlay_legend_is_set_apart_by_two_blank_lines_too():
+    assert _blank_lines_above_the_legend(render_text(_picker(["a", "b"]))) == 2
+
+
 @pytest.mark.parametrize(
     "name, expected",
     [

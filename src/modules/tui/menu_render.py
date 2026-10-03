@@ -7,7 +7,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from modules.tui.keys_legend import MENU, legend
+from modules.tui.keys_legend import FOOTER_GAP, MENU, legend
 from modules.tui.render import RED, RESET, _focused
 
 if TYPE_CHECKING:
@@ -27,5 +27,5 @@ def render_menu(state: "MenuState") -> str:
         label = _focused(f"{item.label:<{width}}", is_focused=focused)
         hint = f"{RED}{item.hint}{RESET}" if item.closed else item.hint
         lines.append(f"{marker} {label}   {hint}")
-    lines += ["", legend(MENU)]
+    lines += [*FOOTER_GAP, legend(MENU)]
     return "\n".join(lines)

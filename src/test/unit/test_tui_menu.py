@@ -54,6 +54,13 @@ def test_the_render_marks_the_focused_item_and_says_the_last_one_is_closed():
     assert "Criar OSI" in [line for line in render_menu(state).splitlines() if line.startswith("> ")][0]
 
 
+def test_the_legend_is_set_apart_from_the_items_by_two_blank_lines():
+    lines = render_menu(MenuState()).splitlines()
+    first = next(i for i, line in enumerate(lines) if "[ENTER]" in line)
+    assert lines[first - 2 : first] == ["", ""]
+    assert lines[first - 3] != ""
+
+
 def test_the_render_footer_names_what_enter_does_and_is_ascii():
     text = render_menu(MenuState())
     assert "[ENTER] / [ESPACO]" in text

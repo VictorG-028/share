@@ -86,7 +86,9 @@ def _key_bindings(state, *, close_overlay=None) -> KeyBindings:
         # on a blocked form -- the screen already says which.
         event.app.invalidate()
 
-    @bindings.add("escape")
+    # eager: act on Esc as soon as the parser knows it is a lone Esc, instead of
+    # also waiting ``timeoutlen`` for a meta-key combination nobody here uses.
+    @bindings.add("escape", eager=True)
     @bindings.add("backspace")
     def _back(event):
         if close_overlay is not None and close_overlay():
@@ -103,15 +105,29 @@ def _key_bindings(state, *, close_overlay=None) -> KeyBindings:
     return bindings
 
 
+#: How long a lone Esc waits to learn it is not the start of an arrow key's
+#: escape sequence. ``prompt_toolkit`` defaults to 0.5 s -- measured on a real
+#: ConPTY (2026-10-03), cancelling with Esc took 560 ms. 50 ms is far above the
+#: gap inside one sequence on a local console and below what a hand can feel.
+ESC_TIMEOUT = 0.05
+
+
 def _application(render, state, bindings, *, input=None, output=None) -> Application:
     control = FormattedTextControl(lambda: ANSI(render(state)))
-    return Application(
+    app = Application(
         layout=Layout(Window(content=control)),
         key_bindings=bindings,
         full_screen=True,
         input=input,
         output=output,
+        # Redraw at once. The default (0.01) makes the scheduler re-queue itself
+        # until 10 ms have passed before drawing -- a fixed floor under every
+        # keypress (measured: 12 ms to the first byte, now ~2 ms) for no gain on
+        # a screen this small, where there is no CPU load to be fair to.
+        max_render_postpone_time=None,
     )
+    app.ttimeoutlen = ESC_TIMEOUT
+    return app
 
 
 # --------------------------------------------------------------------- form

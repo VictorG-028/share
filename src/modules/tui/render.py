@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from modules.tui.keys_legend import OSI, PICKER, RUN, VALUE, legend
+from modules.tui.keys_legend import FOOTER_GAP, OSI, PICKER, RUN, VALUE, legend
 
 if TYPE_CHECKING:
     from modules.tui.state import FormState
@@ -69,7 +69,7 @@ def render_picker(state: "FormState") -> str:
         index = start + offset
         marker = ">" if index == cursor else " "
         lines.append(f"{marker} {_focused(_ellipsize(entry.label), is_focused=index == cursor)}")
-    lines += ["", legend(PICKER)]
+    lines += [*FOOTER_GAP, legend(PICKER)]
     return "\n".join(lines)
 
 
@@ -132,5 +132,5 @@ def render_text(state: "FormState") -> str:
     else:
         mode = VALUE
     run_effect = RUN_EFFECT_SAVE if state.save else RUN_EFFECT_FILL
-    lines += ["", legend(mode, run_effect=run_effect)]
+    lines += [*FOOTER_GAP, legend(mode, run_effect=run_effect)]
     return "\n".join(lines)

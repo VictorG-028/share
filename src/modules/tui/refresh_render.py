@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from modules.tui.keys_legend import RUN, VALUE, legend
+from modules.tui.keys_legend import FOOTER_GAP, RUN, VALUE, legend
 from modules.tui.render import RESET, YELLOW, _focused, _row
 
 if TYPE_CHECKING:
@@ -62,7 +62,7 @@ def render_refresh(state: "RefreshFormState") -> str:
         ),
         "",
         f"{'>' if name == 'run' else ' '} {_focused(BUTTON, is_focused=name == 'run')}",
-        "",
+        *FOOTER_GAP,
         legend(RUN if name == "run" else VALUE, run_effect=RUN_EFFECT),
     ]
     return "\n".join(lines)

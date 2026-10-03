@@ -13,6 +13,18 @@ from modules.paths import user_data_dir
 # dependency is added.
 API_URL = "https://brasilapi.com.br/api/feriados/v1/{year}"
 _TIMEOUT_SECONDS = 5
+# Measured 2026-10-03: BrasilAPI answers urllib's default ``Python-urllib/3.x``
+# agent with 403 (and 200 for any other), so the lookup never succeeded, nothing
+# was ever cached, and every new date in the form paid a fresh ~130 ms round
+# trip -- the lag when changing a day/month/year.
+_USER_AGENT = "auto-appointment/0.1 (+https://github.com/VictorG-028/share)"
+
+# Per-process memory, keyed by (cache dir, year): the screen asks for the same
+# year on every date change, and re-reading + re-parsing the JSON file (or
+# retrying a dead network) each time is pure waste. ``_network_failed`` makes a
+# failing lookup cost one attempt per year per run instead of one per keypress.
+_memo: dict[tuple[str, int], set[date]] = {}
+_network_failed: set[tuple[str, int]] = set()
 
 def _data_dir() -> Path:
     """
@@ -61,8 +73,11 @@ def _write_cache(year: int, days: set[date]) -> None:
 
 
 def _fetch_from_api(year: int) -> set[date]:
-    url = API_URL.format(year=year)
-    with urllib.request.urlopen(url, timeout=_TIMEOUT_SECONDS) as response:
+    request = urllib.request.Request(
+        API_URL.format(year=year),
+        headers={"User-Agent": _USER_AGENT, "Accept": "application/json"},
+    )
+    with urllib.request.urlopen(request, timeout=_TIMEOUT_SECONDS) as response:
         payload = json.load(response)
     return {date.fromisoformat(item["date"]) for item in payload}
 
@@ -77,18 +92,26 @@ def get_holidays(year: int, *, allow_network: bool = True) -> set[date]:
 
     Tries the local cache first; then BrasilAPI (caching the result); finally the
     offline fixed-date fallback. Set ``allow_network=False`` to skip the API
-    entirely (used by tests and offline runs).
+    entirely (used by tests and offline runs). Results are also kept in memory
+    for the life of the process, and a failed lookup is not retried for the
+    same year.
     """
+    key = (str(_data_dir()), year)
+    if key in _memo:
+        return _memo[key]
     cached = _read_cache(year)
     if cached is not None:
+        _memo[key] = cached
         return cached
-    if allow_network:
+    # An offline call never marks a year as failed: it did not try the network.
+    if allow_network and key not in _network_failed:
         try:
             days = _fetch_from_api(year)
             _write_cache(year, days)
+            _memo[key] = days
             return days
         except (urllib.error.URLError, OSError, ValueError, KeyError):
-            pass
+            _network_failed.add(key)
     return _fallback(year)
 
 
@@ -96,6 +119,9 @@ def refresh(year: int) -> set[date]:
     """Force a re-fetch from BrasilAPI and overwrite the cache for ``year``."""
     days = _fetch_from_api(year)
     _write_cache(year, days)
+    key = (str(_data_dir()), year)
+    _memo[key] = days
+    _network_failed.discard(key)
     return days
 
 

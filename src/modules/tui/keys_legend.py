@@ -31,6 +31,11 @@ KEYS_WIDTH = max(
     for keys in (NAV, ADVANCE, ADVANCE_RIGHT, LEFT_RIGHT, LEFT, CANCEL, BACK, CTRL_C)
 )
 
+#: Blank lines between a screen's content and its footer. Two, not one: with a
+#: single blank line the key legend read as part of the form (it was taken for
+#: more fields), so every screen puts this gap before the legend.
+FOOTER_GAP: tuple[str, ...] = ("", "")
+
 # Modes: what the focus is standing on.
 VALUE = "value"  # a day/month/year/toggle/spinner: Enter changes it
 OSI = "osi"  # the OSI row: Enter opens the list
